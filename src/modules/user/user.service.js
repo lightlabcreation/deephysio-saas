@@ -1,0 +1,222 @@
+const bcrypt = require('bcryptjs');
+const prisma = require('../../config/prisma');
+const { MODULES } = require('../../config/moduleAccess');
+const {
+  normalizePermissions,
+  normalizeAllowedActions,
+  getAssignedPermissions,
+  getEffectivePermissions,
+  getEffectiveAllowedActions,
+  validatePermissionAssignment
+} = require('../../config/actionAccess');
+
+const parseUserJsonFields = (user) => {
+  if (!user) return user;
+  const fields = ['allowed_menus', 'allowed_permissions', 'allowed_actions'];
+  fields.forEach(field => {
+    if (typeof user[field] === 'string') {
+      try {
+        user[field] = JSON.parse(user[field]);
+      } catch (e) {
+        user[field] = [];
+      }
+    }
+  });
+  return user;
+};
+
+const normalizeAllowedMenus = (allowedMenus) => {
+  if (typeof allowedMenus === 'string') {
+    try {
+      allowedMenus = JSON.parse(allowedMenus);
+    } catch (e) {
+      return null;
+    }
+  }
+  if (!Array.isArray(allowedMenus)) return null;
+  const unique = [...new Set(allowedMenus.filter((m) => MODULES.includes(m)))];
+  return unique;
+};
+
+const buildPermissionBundle = ({ role, allowed_permissions, allowed_actions }) => {
+  const normalizedPermissions = normalizePermissions(allowed_permissions);
+  if (normalizedPermissions) {
+    const validation = validatePermissionAssignment({ role, assignedPermissions: normalizedPermissions });
+    if (!validation.valid) {
+      const error = new Error(validation.message || 'Invalid permission assignment');
+      error.statusCode = 400;
+      throw error;
+    }
+    return {
+      assignedPermissions: normalizedPermissions,
+      effectivePermissions: getEffectivePermissions({ role, allowed_permissions: normalizedPermissions }),
+      legacyActions: getEffectiveAllowedActions({ role, allowed_permissions: normalizedPermissions })
+    };
+  }
+
+  const normalizedLegacy = normalizeAllowedActions(allowed_actions);
+  const baseUserLike = normalizedLegacy
+    ? { role, allowed_actions: normalizedLegacy }
+    : { role };
+
+  return {
+    assignedPermissions: getAssignedPermissions(baseUserLike),
+    effectivePermissions: getEffectivePermissions(baseUserLike),
+    legacyActions: getEffectiveAllowedActions(baseUserLike)
+  };
+};
+
+/**
+ * Get all users excluding passwords
+ * @returns {Array} List of users
+ */
+const getAllUsers = async (tenantId) => {
+  const users = await prisma.user.findMany({
+    where: tenantId ? { tenant_id: tenantId } : {}
+  });
+
+  return users.map(user => {
+    const parsedUser = parseUserJsonFields(user);
+    const { password, ...userWithoutPassword } = parsedUser;
+    userWithoutPassword.allowed_permissions = getAssignedPermissions(userWithoutPassword);
+    userWithoutPassword.effective_permissions = getEffectivePermissions(userWithoutPassword);
+    userWithoutPassword.allowed_actions = getEffectiveAllowedActions(userWithoutPassword);
+    return userWithoutPassword;
+  });
+};
+
+/**
+ * Create a new user
+ * @param {Object} userData - User details (name, email, password, role)
+ * @returns {Object} Created user without password
+ */
+const createUser = async (userData, tenantId) => {
+  const { name, email, password, role, allowed_menus, allowed_actions, allowed_permissions } = userData;
+  const safeMenus = normalizeAllowedMenus(allowed_menus);
+  const permissionBundle = buildPermissionBundle({ role, allowed_permissions, allowed_actions });
+
+  const existingUser = await prisma.user.findUnique({
+    where: { email }
+  });
+
+  if (existingUser) {
+    const error = new Error('User already exists');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(password, salt);
+
+  const user = await prisma.user.create({
+    data: {
+      name,
+      email,
+      password: hashedPassword,
+      role,
+      tenant_id: tenantId || null,
+      allowed_menus: safeMenus ? JSON.stringify(safeMenus) : null,
+      allowed_permissions: permissionBundle.assignedPermissions ? JSON.stringify(permissionBundle.assignedPermissions) : null,
+      allowed_actions: permissionBundle.legacyActions ? JSON.stringify(permissionBundle.legacyActions) : null
+    }
+  });
+
+  const parsedUser = parseUserJsonFields(user);
+  const { password: _, ...userWithoutPassword } = parsedUser;
+  userWithoutPassword.allowed_permissions = getAssignedPermissions(userWithoutPassword);
+  userWithoutPassword.effective_permissions = getEffectivePermissions(userWithoutPassword);
+  userWithoutPassword.allowed_actions = getEffectiveAllowedActions(userWithoutPassword);
+  return userWithoutPassword;
+};
+
+const getUserById = async (id, tenantId) => {
+  const user = await prisma.user.findFirst({
+    where: tenantId ? { id, tenant_id: tenantId } : { id },
+    include: { tenant: true }
+  });
+
+  if (!user) {
+    const error = new Error('User not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const parsedUser = parseUserJsonFields(user);
+  const { password, ...userWithoutPassword } = parsedUser;
+  userWithoutPassword.allowed_permissions = getAssignedPermissions(userWithoutPassword);
+  userWithoutPassword.effective_permissions = getEffectivePermissions(userWithoutPassword);
+  userWithoutPassword.allowed_actions = getEffectiveAllowedActions(userWithoutPassword);
+  return userWithoutPassword;
+};
+
+const deleteUser = async (id, tenantId) => {
+  const user = await prisma.user.findFirst({ where: tenantId ? { id, tenant_id: tenantId } : { id } });
+  if (!user) {
+    const error = new Error('User not found');
+    error.statusCode = 404;
+    throw error;
+  }
+  return await prisma.user.delete({ where: { id } });
+};
+
+const updateUser = async (id, data, tenantId) => {
+  const existingUser = await prisma.user.findFirst({ where: tenantId ? { id, tenant_id: tenantId } : { id } });
+  if (!existingUser) {
+    const error = new Error('User not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const { password, allowed_menus, allowed_actions, allowed_permissions, ...updateData } = data;
+  if (password) {
+    const salt = await bcrypt.genSalt(10);
+    updateData.password = await bcrypt.hash(password, salt);
+  }
+
+  if (allowed_menus !== undefined) {
+    updateData.allowed_menus = JSON.stringify(normalizeAllowedMenus(allowed_menus));
+  }
+  if (allowed_menus !== undefined || allowed_actions !== undefined || allowed_permissions !== undefined || data.role !== undefined) {
+    const roleForPermissions = String(updateData.role || existingUser?.role || '').toLowerCase();
+    const sourcePermissions = allowed_permissions !== undefined
+      ? allowed_permissions
+      : existingUser?.allowed_permissions;
+    const sourceLegacyActions = allowed_actions !== undefined
+      ? allowed_actions
+      : existingUser?.allowed_actions;
+    const permissionBundle = buildPermissionBundle({
+      role: roleForPermissions,
+      allowed_permissions: sourcePermissions,
+      allowed_actions: sourceLegacyActions
+    });
+
+    updateData.allowed_permissions = JSON.stringify(permissionBundle.assignedPermissions);
+    updateData.allowed_actions = JSON.stringify(permissionBundle.legacyActions);
+  }
+
+  // Remove fields not in the Prisma User model to avoid errors
+  const ALLOWED_USER_FIELDS = ['name', 'email', 'password', 'role', 'allowed_menus', 'allowed_permissions', 'allowed_actions'];
+  Object.keys(updateData).forEach(key => {
+    if (!ALLOWED_USER_FIELDS.includes(key)) delete updateData[key];
+  });
+
+  const user = await prisma.user.update({
+    where: { id: existingUser.id },
+    data: updateData
+  });
+
+  const parsedUser = parseUserJsonFields(user);
+  const { password: _, ...userWithoutPassword } = parsedUser;
+  userWithoutPassword.allowed_permissions = getAssignedPermissions(userWithoutPassword);
+  userWithoutPassword.effective_permissions = getEffectivePermissions(userWithoutPassword);
+  userWithoutPassword.allowed_actions = getEffectiveAllowedActions(userWithoutPassword);
+  return userWithoutPassword;
+};
+
+module.exports = {
+  getAllUsers,
+  getUserById,
+  createUser,
+  deleteUser,
+  updateUser
+};

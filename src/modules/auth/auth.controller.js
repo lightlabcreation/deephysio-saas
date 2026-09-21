@@ -1,0 +1,141 @@
+const authService = require('./auth.service');
+const { logActivity } = require('../../utils/activityLogger');
+const Razorpay = require('razorpay');
+
+const registerUser = async (req, res) => {
+  try {
+    const user = await authService.registerUser(req.body);
+
+    return res.status(201).json({
+      success: true,
+      data: user,
+      message: 'User registered successfully'
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const loginUser = async (req, res) => {
+  try {
+    const result = await authService.loginUser(req.body);
+
+    await logActivity(
+      result.user.id, 
+      'LOGIN', 
+      result.user.id, 
+      'User', 
+      `User ${result.user.name} logged in`,
+      { entity: 'User', entityId: result.user.id, label: result.user.name }
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+      message: 'Login successful'
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const forgotPassword = async (req, res) => {
+  try {
+    const result = await authService.forgotPassword(req.body);
+    return res.status(200).json({
+      success: true,
+      data: result,
+      message: result.message || 'If that email is in our system, a reset link has been sent.'
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const result = await authService.resetPassword(req.body);
+    return res.status(200).json({
+      success: true,
+      data: result,
+      message: 'Password has been reset successfully. You can now login with your new password.'
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const changePassword = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const result = await authService.changePassword(userId, req.body);
+    return res.status(200).json({
+      success: true,
+      data: result,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const createSubscriptionOrder = async (req, res) => {
+  try {
+    const { planName } = req.body;
+    
+    let amount = 99900; // Starter: ₹999
+    if (planName === 'Standard') amount = 129900;
+    else if (planName === 'Pro') amount = 149900;
+
+    // Use the exact live credentials provided by the user
+    const instance = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_T2CGGz8NLUuopj',
+      key_secret: process.env.RAZORPAY_KEY_SECRET || 'CaKT2baCx1GxiPs8LX7cE1Bu'
+    });
+
+    const options = {
+      amount: amount, 
+      currency: 'INR',
+      receipt: `receipt_${Date.now()}`
+    };
+
+    const order = await instance.orders.create(options);
+
+    return res.status(200).json({
+      success: true,
+      data: order,
+      isMock: false,
+      message: 'Order created successfully'
+    });
+  } catch (error) {
+    console.error('Razorpay Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create payment order. Please check Razorpay keys.'
+    });
+  }
+};
+
+module.exports = {
+  registerUser,
+  loginUser,
+  forgotPassword,
+  resetPassword,
+  changePassword,
+  createSubscriptionOrder
+};

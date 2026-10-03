@@ -51,23 +51,80 @@ app.use('/api/auth', authRoutes);
 const saasRoutes = require('./modules/saas.routes');
 app.use('/api/saas', saasRoutes);
 
+const backupRoutes = require('./modules/backup/backup.routes');
+app.use('/api/backup', backupRoutes);
+app.use('/api/backups', backupRoutes);
+
+const auditLogRoutes = require('./modules/auditLog/auditLog.routes');
+app.use('/api/audit-logs', auditLogRoutes);
+
 const supportRoutes = require('./modules/support/support.routes');
 app.use('/api/support', supportRoutes);
+
+const emailSettingsRoutes = require('./modules/emailSettings/emailSettings.routes');
+app.use('/api/email-settings', emailSettingsRoutes);
+
 // Public Configuration Route
 app.get('/api/public/config', async (req, res, next) => {
   try {
     const prisma = require('./config/prisma');
-    const profile = await prisma.globalSettings.findUnique({ where: { key: 'clinicProfile' } });
-    if (!profile) return res.json({ success: true, data: {} });
-    
-    let profileValue = profile.value;
-    try {
-      if (profileValue && typeof profileValue === 'string' && profileValue.startsWith('{')) {
-        profileValue = JSON.parse(profileValue);
+    let tenantId = null;
+
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        tenantId = decoded.tenant_id !== undefined ? decoded.tenant_id : decoded.tenantId;
+      } catch (e) {
+        // invalid token ignored for public route
       }
-    } catch (e) {}
-    
-    return res.json({ success: true, data: { clinicProfile: profileValue } });
+    }
+
+    const whereClause = {
+      key: { in: ['clinicProfile', 'clinicCurrency'] }
+    };
+
+    if (tenantId) {
+      whereClause.tenant_id = parseInt(tenantId, 10);
+    } else {
+      whereClause.tenant_id = null;
+    }
+
+    const settings = await prisma.globalSettings.findMany({
+      where: whereClause
+    });
+
+    const data = {
+      clinicProfile: null,
+      clinicCurrency: null
+    };
+
+    settings.forEach((s) => {
+      let val = s.value;
+      try {
+        if (val && typeof val === 'string' && (val.startsWith('{') || val.startsWith('['))) {
+          val = JSON.parse(val);
+        }
+      } catch (e) {}
+      data[s.key] = val;
+    });
+
+    // If tenant is authenticated, ensure clinicName reflects their tenant organization
+    if (tenantId) {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: parseInt(tenantId, 10) }
+      });
+      if (tenant && tenant.clinic_name) {
+        data.clinicProfile = {
+          ...(data.clinicProfile || {}),
+          clinicName: (data.clinicProfile && data.clinicProfile.clinicName) ? data.clinicProfile.clinicName : tenant.clinic_name
+        };
+      }
+    }
+
+    return res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -139,6 +196,10 @@ app.use('/api/analytics', verifyToken, requireModuleAccess('Analytics'), analyti
 
 const settingsRoutes = require('./modules/settings/settings.routes');
 app.use('/api/settings', verifyToken, requireModuleAccess('Settings'), settingsRoutes);
+
+const whatsappRoutes = require('./modules/whatsapp/whatsapp.routes');
+app.use('/api/settings/whatsapp', verifyToken, requireModuleAccess('Settings'), whatsappRoutes);
+app.use('/api/whatsapp', verifyToken, requireModuleAccess('Settings'), whatsappRoutes);
 
 const noteTemplateRoutes = require('./modules/noteTemplate/noteTemplate.routes');
 app.use('/api/note-templates', verifyToken, requireModuleAccess('Clinical Notes'), noteTemplateRoutes);

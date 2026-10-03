@@ -28,7 +28,7 @@ const getActivities = async (req, res, next) => {
 const getStaffOverview = async (req, res, next) => {
   try {
     const { month, year } = req.query;
-    const data = await analyticsService.getStaffOverview({ month, year });
+    const data = await analyticsService.getStaffOverview({ month, year }, req.user?.tenant_id);
     return res.status(200).json({
       success: true,
       data
@@ -41,7 +41,7 @@ const getStaffOverview = async (req, res, next) => {
 const getRoomIncome = async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;
-    const data = await analyticsService.getRoomIncome({ startDate, endDate });
+    const data = await analyticsService.getRoomIncome({ startDate, endDate }, req.user?.tenant_id);
     return res.status(200).json({
       success: true,
       data

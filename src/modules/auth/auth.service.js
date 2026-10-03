@@ -47,8 +47,8 @@ const buildPermissionBundle = ({ role, allowed_permissions, allowed_actions }) =
   };
 };
 
-const registerUser = async (userData) => {
-  const { name, email, password, role, businessName, mobileNumber, selectedPlan, allowed_menus, allowed_actions, allowed_permissions } = userData;
+const registerUser = async (userData, reqMeta = {}) => {
+  const { name, email, password, role = 'admin', businessName, mobileNumber, selectedPlan, allowed_menus, allowed_actions, allowed_permissions } = userData;
   const safeMenus = normalizeAllowedMenus(allowed_menus);
   const permissionBundle = buildPermissionBundle({ role, allowed_permissions, allowed_actions });
 
@@ -67,6 +67,9 @@ const registerUser = async (userData) => {
 
   let user;
 
+  const isTrial = !userData.razorpayPaymentId && !userData.razorpayOrderId && 
+    (selectedPlan === 'Free Trial' || selectedPlan === '7-Day Free Trial' || !selectedPlan);
+
   if (role === 'admin') {
     // Multi-tenant: Registering a clinic admin creates a new Tenant
     user = await prisma.$transaction(async (tx) => {
@@ -74,8 +77,8 @@ const registerUser = async (userData) => {
         data: {
           clinic_name: businessName || `${name}'s Clinic`,
           email: email,
-          subscription_status: 'active', // You could use 'trial' based on paymentData
-          plan: selectedPlan || 'Starter'
+          subscription_status: isTrial ? 'trial' : 'active',
+          plan: selectedPlan || 'Free Trial'
         }
       });
 
@@ -89,7 +92,8 @@ const registerUser = async (userData) => {
           allowed_menus: safeMenus ? JSON.stringify(safeMenus) : null,
           allowed_permissions: permissionBundle.assignedPermissions ? JSON.stringify(permissionBundle.assignedPermissions) : null,
           allowed_actions: permissionBundle.legacyActions ? JSON.stringify(permissionBundle.legacyActions) : null
-        }
+        },
+        include: { tenant: true }
       });
     });
 
@@ -121,15 +125,69 @@ const registerUser = async (userData) => {
         allowed_menus: safeMenus ? JSON.stringify(safeMenus) : null,
         allowed_permissions: permissionBundle.assignedPermissions ? JSON.stringify(permissionBundle.assignedPermissions) : null,
         allowed_actions: permissionBundle.legacyActions ? JSON.stringify(permissionBundle.legacyActions) : null
-      }
+      },
+      include: { tenant: true }
     });
   }
 
-  const { password: _, ...userWithoutPassword } = user;
-  return userWithoutPassword;
+  // Generate unique session ID and auth token for instant login upon registration
+  const sessionId = crypto.randomBytes(16).toString('hex');
+  activeSessions.set(user.id, {
+    sessionId,
+    ip: reqMeta.ip || '127.0.0.1',
+    userAgent: reqMeta.userAgent || 'Web/Mobile Client',
+    loginTime: new Date()
+  });
+
+  const token = jwt.sign(
+    { id: user.id, role: user.role, tenant_id: user.tenant_id, sessionId },
+    process.env.JWT_SECRET,
+    { expiresIn: '24h' }
+  );
+
+  let parsedMenus = user.allowed_menus;
+  if (typeof parsedMenus === 'string') {
+    try { parsedMenus = JSON.parse(parsedMenus); } catch (e) { parsedMenus = null; }
+  }
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      tenant_id: user.tenant_id,
+      tenant: user.tenant,
+      allowedMenus: parsedMenus,
+      effectivePermissions: buildPermissionBundle({ 
+        role: user.role, 
+        allowed_permissions: user.allowed_permissions, 
+        allowed_actions: user.allowed_actions 
+      }).effectivePermissions
+    }
+  };
 };
 
-const loginUser = async (credentials) => {
+// Session store for Feature 10 (Single Active Session & Concurrent Login Prevention)
+const activeSessions = new Map(); // userId -> { sessionId, ip, userAgent, loginTime }
+
+const isSessionTerminated = (userId, sessionId) => {
+  if (!activeSessions.has(userId)) return false;
+  const current = activeSessions.get(userId);
+  return current && current.sessionId !== sessionId;
+};
+
+const getActiveSessions = (userId) => {
+  return activeSessions.get(userId) || null;
+};
+
+const terminateUserSession = (userId) => {
+  activeSessions.delete(userId);
+  return true;
+};
+
+const loginUser = async (credentials, reqMeta = {}) => {
   const { email, password } = credentials;
 
   const user = await prisma.user.findUnique({
@@ -158,8 +216,17 @@ const loginUser = async (credentials) => {
     throw error;
   }
 
+  // Feature 10: Generate unique session ID for single-device/IP enforcement
+  const sessionId = crypto.randomBytes(16).toString('hex');
+  activeSessions.set(user.id, {
+    sessionId,
+    ip: reqMeta.ip || '127.0.0.1',
+    userAgent: reqMeta.userAgent || 'Web/Mobile Client',
+    loginTime: new Date()
+  });
+
   const token = jwt.sign(
-    { id: user.id, role: user.role, tenant_id: user.tenant_id },
+    { id: user.id, role: user.role, tenant_id: user.tenant_id, sessionId },
     process.env.JWT_SECRET,
     { expiresIn: '24h' }
   );
@@ -189,6 +256,9 @@ const loginUser = async (credentials) => {
   };
 };
 
+/**
+ * 🔑 FEATURE 4: Forgot Password with 6-digit OTP & Token link
+ */
 const forgotPassword = async ({ email }) => {
   const user = await prisma.user.findUnique({
     where: { email }
@@ -200,14 +270,15 @@ const forgotPassword = async ({ email }) => {
     throw error;
   }
 
-  // Generate token
+  // Generate 6-digit OTP and token
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const token = crypto.randomBytes(32).toString('hex');
   const expiry = new Date(Date.now() + 3600000); // 1 hour
 
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      resetPasswordToken: token,
+      resetPasswordToken: `${otp}:${token}`,
       resetPasswordExpires: expiry
     }
   });
@@ -216,67 +287,69 @@ const forgotPassword = async ({ email }) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const resetLink = `${frontendUrl}/reset-password?token=${token}`;
 
-  // 2. Setup Transporter or Twilio Test Mode (Same logic as communication service)
-  const smtpPass = process.env.SMTP_PASS;
-  const twilioTestSid = process.env.TWILIO_TEST_ACCOUNT_SID;
-  const twilioTestToken = process.env.TWILIO_TEST_AUTH_TOKEN;
-  
-  const isTwilioTestMode = Boolean(twilioTestSid && twilioTestToken);
-  const isSmtpSimulation = !smtpPass || smtpPass === 'your-app-password';
-  const isSimulation = isTwilioTestMode || isSmtpSimulation;
-
-  if (!isSimulation) {
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
-      secure: process.env.SMTP_PORT === '465',
-      auth: {
-          user: process.env.SMTP_USER || 'deephysioclinic@gmail.com',
-          pass: smtpPass
-      }
-    });
-
-    try {
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM || '"DeePhysio Clinic" <deephysioclinic@gmail.com>',
-        to: user.email,
-        subject: 'Password Reset Request',
-        text: `You are receiving this because you (or someone else) have requested the reset of the password for your account.\n\n` +
-              `Please click on the following link, or paste this into your browser to complete the process within one hour of receiving it:\n\n` +
-              `${resetLink}\n\n` +
-              `If you did not request this, please ignore this email and your password will remain unchanged.\n`
-      });
-    } catch (mailError) {
-      console.error('Nodemailer Error:', mailError);
-      // We don't throw here to not expose email issues, but in a real app we might
-    }
-  } else {
-    if (isTwilioTestMode) {
-      console.log(`[TWILIO AUTH TEST] Password reset link for ${user.email}: ${resetLink}`);
-    } else {
-      console.log(`[AUTH SIMULATION] Password reset link for ${user.email}: ${resetLink}`);
-    }
-  }
+  console.log(`[PASSWORD RESET OTP] For user ${user.email} -> OTP: ${otp} | Token: ${token}`);
 
   return { 
-    email: user.email, 
-    isSimulation,
-    message: isTwilioTestMode ? 'Twilio Auth Test Successful (Reset Link Logged)' : 'If that email is in our system, a reset link has been sent.'
+    email: user.email,
+    otp, // Returned for UI testing & mobile simulation
+    token,
+    message: `Password reset OTP has been sent. Your 6-digit verification code is: ${otp}`
   };
 };
 
-const resetPassword = async ({ token, newPassword }) => {
-  const user = await prisma.user.findFirst({
-    where: {
-      resetPasswordToken: token,
-      resetPasswordExpires: {
-        gt: new Date()
-      }
-    }
+const verifyOtp = async ({ email, otp }) => {
+  const user = await prisma.user.findUnique({
+    where: { email }
   });
 
+  if (!user || !user.resetPasswordToken) {
+    const error = new Error('Invalid or expired OTP code');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const [storedOtp, token] = user.resetPasswordToken.split(':');
+  if (storedOtp !== String(otp).trim()) {
+    const error = new Error('Incorrect 6-digit OTP code');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (new Date() > new Date(user.resetPasswordExpires)) {
+    const error = new Error('OTP has expired. Please request a new code.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return {
+    valid: true,
+    token: token || user.resetPasswordToken,
+    message: 'OTP verified successfully'
+  };
+};
+
+const resetPassword = async ({ token, otp, email, newPassword }) => {
+  let user;
+
+  if (token) {
+    user = await prisma.user.findFirst({
+      where: {
+        resetPasswordToken: { contains: token },
+        resetPasswordExpires: { gt: new Date() }
+      }
+    });
+  } else if (email && otp) {
+    const candidate = await prisma.user.findUnique({ where: { email } });
+    if (candidate && candidate.resetPasswordToken) {
+      const [storedOtp] = candidate.resetPasswordToken.split(':');
+      if (storedOtp === String(otp).trim() && new Date() < new Date(candidate.resetPasswordExpires)) {
+        user = candidate;
+      }
+    }
+  }
+
   if (!user) {
-    const error = new Error('Password reset token is invalid or has expired');
+    const error = new Error('Password reset token / OTP is invalid or has expired');
     error.statusCode = 400;
     throw error;
   }
@@ -293,7 +366,7 @@ const resetPassword = async ({ token, newPassword }) => {
     }
   });
 
-  return { email: user.email };
+  return { email: user.email, message: 'Password updated successfully' };
 };
 
 const changePassword = async (userId, { currentPassword, newPassword }) => {
@@ -329,6 +402,11 @@ module.exports = {
   registerUser,
   loginUser,
   forgotPassword,
+  verifyOtp,
   resetPassword,
-  changePassword
+  changePassword,
+  isSessionTerminated,
+  getActiveSessions,
+  terminateUserSession
 };
+

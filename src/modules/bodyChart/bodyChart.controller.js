@@ -11,7 +11,7 @@ const getBodyCharts = async (req, res, next) => {
       });
     }
 
-    const charts = await bodyChartService.getBodyChartsByPatientId(patientId);
+    const charts = await bodyChartService.getBodyChartsByPatientId(patientId, req.user?.tenant_id);
     return res.status(200).json({
       success: true,
       data: charts
@@ -33,7 +33,7 @@ const updateBodyChart = async (req, res, next) => {
       });
     }
 
-    const updated = await bodyChartService.updateBodyChart(id, patientId, { annotatedImage });
+    const updated = await bodyChartService.updateBodyChart(id, patientId, { annotatedImage }, req.user?.tenant_id);
     return res.status(200).json({
       success: true,
       data: updated

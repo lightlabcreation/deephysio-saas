@@ -2,14 +2,13 @@ const templateService = require('./formTemplate.service');
 
 const getAllTemplates = async (req, res) => {
   try {
-    // 🔥 Self-healing seed for demo environment (Safe execution)
     try {
       await templateService.seedTemplates();
     } catch (seedError) {
       console.warn("Seeding templates bypassed:", seedError.message);
     }
     
-    const templates = await templateService.getAllTemplates();
+    const templates = await templateService.getAllTemplates(req.user?.tenant_id);
     return res.status(200).json({ success: true, data: templates });
   } catch (error) {
     console.error("Clinical Forms Fetch Error:", error);
@@ -19,7 +18,7 @@ const getAllTemplates = async (req, res) => {
 
 const getTemplateById = async (req, res) => {
   try {
-    const template = await templateService.getTemplateById(req.params.id);
+    const template = await templateService.getTemplateById(req.params.id, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: template });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -28,7 +27,7 @@ const getTemplateById = async (req, res) => {
 
 const createTemplate = async (req, res) => {
   try {
-    const template = await templateService.createTemplate(req.body);
+    const template = await templateService.createTemplate(req.body, req.user?.tenant_id);
     return res.status(201).json({ success: true, data: template, message: "Form template created successfully" });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -37,7 +36,7 @@ const createTemplate = async (req, res) => {
 
 const updateTemplate = async (req, res) => {
   try {
-    const template = await templateService.updateTemplate(req.params.id, req.body);
+    const template = await templateService.updateTemplate(req.params.id, req.body, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: template, message: "Form template updated successfully" });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -46,7 +45,7 @@ const updateTemplate = async (req, res) => {
 
 const deleteTemplate = async (req, res) => {
   try {
-    const deleted = await templateService.deleteTemplate(req.params.id);
+    const deleted = await templateService.deleteTemplate(req.params.id, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: deleted, message: "Form template deleted successfully" });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });

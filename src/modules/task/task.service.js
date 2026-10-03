@@ -3,11 +3,25 @@ const prisma = require('../../config/prisma');
 /**
  * Get tasks for a patient
  * @param {Number} patientId - Patient ID
+ * @param {Number} [tenantId] - Tenant context
  * @returns {Array} List of tasks
  */
-const getTasksByPatientId = async (patientId) => {
+const getTasksByPatientId = async (patientId, tenantId) => {
+  const pid = parseInt(patientId, 10);
+  const patientWhere = { id: pid };
+  if (tenantId) patientWhere.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({ where: patientWhere });
+  if (!patient) {
+    const error = new Error('Patient not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const where = { patient_id: pid };
+  if (tenantId) where.tenant_id = tenantId;
+
   return await prisma.task.findMany({
-    where: { patient_id: parseInt(patientId) },
+    where,
     orderBy: { created_at: 'desc' }
   });
 };
@@ -15,17 +29,30 @@ const getTasksByPatientId = async (patientId) => {
 /**
  * Create a new task
  * @param {Object} taskData - Task data
+ * @param {Number} [tenantId] - Tenant context
  * @returns {Object} Created task
  */
-const createTask = async (taskData) => {
+const createTask = async (taskData, tenantId) => {
   const { patientId, title, description, dueDate } = taskData;
+  const pid = parseInt(patientId, 10);
+
+  const patientWhere = { id: pid };
+  if (tenantId) patientWhere.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({ where: patientWhere });
+  if (!patient) {
+    const error = new Error('Patient not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
   return await prisma.task.create({
     data: {
-      patient_id: parseInt(patientId),
+      patient_id: pid,
       title: title.trim(),
       description: description ? description.trim() : null,
       due_date: dueDate ? new Date(dueDate) : null,
-      status: 'pending'
+      status: 'pending',
+      tenant_id: tenantId || null
     }
   });
 };
@@ -34,16 +61,17 @@ const createTask = async (taskData) => {
  * Update task by ID
  * @param {Number} id - Task ID
  * @param {Object} taskData - Fields to update
+ * @param {Number} [tenantId] - Tenant context
  * @returns {Object} Updated task
  */
-const updateTask = async (id, taskData) => {
+const updateTask = async (id, taskData, tenantId) => {
   const { title, description, status, dueDate } = taskData;
-  
-  // Check if task exists
-  const existing = await prisma.task.findUnique({
-    where: { id: parseInt(id) }
-  });
+  const tid = parseInt(id, 10);
 
+  const where = { id: tid };
+  if (tenantId) where.tenant_id = tenantId;
+
+  const existing = await prisma.task.findFirst({ where });
   if (!existing) {
     const error = new Error('Task not found');
     error.statusCode = 404;
@@ -57,7 +85,7 @@ const updateTask = async (id, taskData) => {
   if (dueDate !== undefined) updateData.due_date = dueDate ? new Date(dueDate) : null;
 
   return await prisma.task.update({
-    where: { id: parseInt(id) },
+    where: { id: tid },
     data: updateData
   });
 };

@@ -11,7 +11,7 @@ const getFiles = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'patientId is required' });
     }
 
-    const files = await fileService.getFilesByPatientId(parseInt(patientId));
+    const files = await fileService.getFilesByPatientId(parseInt(patientId, 10), req.user?.tenant_id);
     res.json({ success: true, data: files });
   } catch (error) {
     next(error);
@@ -31,7 +31,7 @@ const createFile = async (req, res, next) => {
       });
     }
 
-    const file = await fileService.createFile(req.body);
+    const file = await fileService.createFile(req.body, req.user?.tenant_id);
     res.status(201).json({ success: true, data: file });
   } catch (error) {
     next(error);
@@ -45,7 +45,7 @@ const deleteFile = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid file id' });
     }
 
-    await fileService.deleteFile(id);
+    await fileService.deleteFile(id, req.user?.tenant_id);
     res.json({ success: true, message: 'File deleted successfully' });
   } catch (error) {
     next(error);

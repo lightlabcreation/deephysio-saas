@@ -5,7 +5,7 @@ const submissionService = require('./formSubmission.service');
  */
 const createSubmission = async (req, res) => {
   try {
-    const submission = await submissionService.createSubmission(req.body);
+    const submission = await submissionService.createSubmission(req.body, req.user?.tenant_id);
     res.status(201).json({
       success: true,
       data: submission,
@@ -31,7 +31,7 @@ const getPatientSubmissions = async (req, res) => {
         message: 'Patient ID is required'
       });
     }
-    const submissions = await submissionService.getSubmissionsByPatientId(patientId);
+    const submissions = await submissionService.getSubmissionsByPatientId(patientId, req.user?.tenant_id);
     res.status(200).json({
       success: true,
       data: submissions
@@ -50,13 +50,7 @@ const getPatientSubmissions = async (req, res) => {
 const getSubmission = async (req, res) => {
   try {
     const { id } = req.params;
-    const submission = await submissionService.getSubmissionById(id);
-    if (!submission) {
-      return res.status(404).json({
-        success: false,
-        message: 'Submission not found'
-      });
-    }
+    const submission = await submissionService.getSubmissionById(id, req.user?.tenant_id);
     res.status(200).json({
       success: true,
       data: submission

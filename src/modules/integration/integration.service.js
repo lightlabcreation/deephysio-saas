@@ -219,11 +219,21 @@ const setEnabledState = async (integrationId, enabled, payload) => {
   return listIntegrations({ clinicId });
 };
 
+const getDecryptedCredentials = async (integrationId, { clinicId } = {}) => {
+  const resolvedClinicId = resolveClinicId(clinicId);
+  const clinicIntegration = await prisma.clinicIntegration.findFirst({
+    where: { integration_id: Number(integrationId), clinic_id: resolvedClinicId }
+  });
+  if (!clinicIntegration) return {};
+  return decryptConfig(clinicIntegration.encrypted_credentials) || {};
+};
+
 module.exports = {
   listIntegrations,
   createIntegration,
   updateIntegration,
   connectIntegration,
   disconnectIntegration,
-  setEnabledState
+  setEnabledState,
+  getDecryptedCredentials
 };

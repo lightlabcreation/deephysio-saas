@@ -16,9 +16,19 @@ const patientBasicSelect = {
   is_active: true
 };
 
-const getAllPatients = async (tenantId, scope = 'read') => {
+const getAllPatients = async (tenantId, scope = 'read', search) => {
+  const where = { is_deleted: false, tenant_id: tenantId || null };
+  if (search && String(search).trim()) {
+    const term = String(search).trim();
+    where.OR = [
+      { first_name: { contains: term } },
+      { last_name: { contains: term } },
+      { phone: { contains: term } },
+      { email: { contains: term } }
+    ];
+  }
   return prisma.patient.findMany({
-    where: { is_deleted: false, tenant_id: tenantId || null },
+    where,
     ...(scope === 'basic' ? { select: patientBasicSelect } : {}),
     orderBy: { created_at: 'desc' }
   });
@@ -137,9 +147,11 @@ const createPatient = async (patientData, tenantId) => {
  * @param {Number} id - Patient ID
  * @returns {Object} Patient with medical_history and emergency_contacts
  */
-const getPatientById = async (id, scope = 'read') => {
-  const patient = await prisma.patient.findUnique({
-    where: { id, is_deleted: false },
+const getPatientById = async (id, scope = 'read', tenantId) => {
+  const where = { id, is_deleted: false };
+  if (tenantId) where.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({
+    where,
     ...(scope === 'basic'
       ? { select: patientBasicSelect }
       : {
@@ -166,8 +178,10 @@ const getPatientById = async (id, scope = 'read') => {
  * @returns {Object} Updated patient
  */
 const updatePatient = async (id, data, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
   const existing = await prisma.patient.findFirst({
-    where: { id, tenant_id: tenantId || null }
+    where
   });
 
   if (!existing) {
@@ -325,10 +339,12 @@ const updatePatient = async (id, data, tenantId) => {
  * @param {Number} id - Patient ID
  * @returns {Object} Deleted patient
  */
-const deletePatient = async (id) => {
+const deletePatient = async (id, tenantId) => {
   // Check patient exists and is not already deleted
-  const existing = await prisma.patient.findUnique({
-    where: { id, is_deleted: false }
+  const where = { id, is_deleted: false };
+  if (tenantId) where.tenant_id = tenantId;
+  const existing = await prisma.patient.findFirst({
+    where
   });
 
   if (!existing) {
@@ -357,9 +373,11 @@ const deletePatient = async (id) => {
   });
 };
 
-const getMedicalHistoryByPatientId = async (patientId) => {
-  const patient = await prisma.patient.findUnique({
-    where: { id: patientId, is_deleted: false },
+const getMedicalHistoryByPatientId = async (patientId, tenantId) => {
+  const where = { id: patientId, is_deleted: false };
+  if (tenantId) where.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({
+    where,
     select: { id: true }
   });
 
@@ -376,9 +394,11 @@ const getMedicalHistoryByPatientId = async (patientId) => {
   return medicalHistory || null;
 };
 
-const upsertMedicalHistory = async (patientId, medicalHistoryData) => {
-  const patient = await prisma.patient.findUnique({
-    where: { id: patientId, is_deleted: false },
+const upsertMedicalHistory = async (patientId, medicalHistoryData, tenantId) => {
+  const where = { id: patientId, is_deleted: false };
+  if (tenantId) where.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({
+    where,
     select: { id: true }
   });
 

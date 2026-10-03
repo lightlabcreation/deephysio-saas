@@ -9,7 +9,7 @@ const { logActivity } = require('../../utils/activityLogger');
 const getAllPatients = async (req, res) => {
   try {
     const scope = req.authz?.effectivePermissions?.includes('patient.read') ? 'read' : 'basic';
-    const patients = await patientService.getAllPatients(req.user.tenant_id, scope);
+    const patients = await patientService.getAllPatients(req.user.tenant_id, scope, req.query.search);
 
     return res.status(200).json({
       success: true,
@@ -67,7 +67,7 @@ const getPatientById = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const scope = req.authz?.effectivePermissions?.includes('patient.read') ? 'read' : 'basic';
-    const patient = await patientService.getPatientById(id, scope);
+    const patient = await patientService.getPatientById(id, scope, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -89,7 +89,7 @@ const getPatientById = async (req, res) => {
 const updatePatient = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const patient = await patientService.updatePatient(id, req.body);
+    const patient = await patientService.updatePatient(id, req.body, req.user?.tenant_id);
     logActivity(
       req.user?.id,
       'UPDATE_PATIENT',
@@ -120,7 +120,7 @@ const updatePatient = async (req, res) => {
 const deletePatient = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const deletedPatient = await patientService.deletePatient(id);
+    const deletedPatient = await patientService.deletePatient(id, req.user?.tenant_id);
     await logActivity(
       req.user?.id,
       'UPDATE_PATIENT',
@@ -146,7 +146,7 @@ const deletePatient = async (req, res) => {
 const getMedicalHistory = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const medicalHistory = await patientService.getMedicalHistoryByPatientId(id);
+    const medicalHistory = await patientService.getMedicalHistoryByPatientId(id, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -163,7 +163,7 @@ const getMedicalHistory = async (req, res) => {
 const upsertMedicalHistory = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const medicalHistory = await patientService.upsertMedicalHistory(id, req.body);
+    const medicalHistory = await patientService.upsertMedicalHistory(id, req.body, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,

@@ -80,9 +80,21 @@ const markAsArrived = async (appointment_id) => {
       checked_in_at: new Date()
     },
     include: {
-      patient: true
+      patient: true,
+      therapist: { select: { id: true, name: true } }
     }
   });
+
+  // Additive Role-based WhatsApp Notification (Non-blocking)
+  try {
+    const { notifyAttendanceCheckin } = require('../whatsapp/whatsappNotification.service');
+    notifyAttendanceCheckin({
+      tenantId: updatedAppointment.tenant_id,
+      patient: updatedAppointment.patient,
+      appointment: updatedAppointment,
+      therapistName: updatedAppointment.therapist?.name
+    });
+  } catch (_) {}
 
   return updatedAppointment;
 };

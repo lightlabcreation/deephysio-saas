@@ -20,40 +20,63 @@ const ensureAnnotatedImageColumn = async () => {
   }
 };
 
-const ensureDefaultBodyCharts = async (patientId) => {
-  const count = await prisma.bodyChart.count({
-    where: { patient_id: parseInt(patientId, 10) }
-  });
+const ensureDefaultBodyCharts = async (patientId, tenantId) => {
+  const pid = parseInt(patientId, 10);
+  const where = { patient_id: pid };
+  if (tenantId) where.tenant_id = tenantId;
+
+  const count = await prisma.bodyChart.count({ where });
 
   if (count > 0) return;
 
   await prisma.bodyChart.createMany({
     data: DEFAULT_BODY_CHARTS.map((chart) => ({
-      patient_id: parseInt(patientId, 10),
+      patient_id: pid,
       title: chart.title,
       image_url: chart.image_url,
-      sort_order: chart.sort_order
+      sort_order: chart.sort_order,
+      tenant_id: tenantId || null
     }))
   });
 };
 
-const getBodyChartsByPatientId = async (patientId) => {
-  await ensureAnnotatedImageColumn();
-  await ensureDefaultBodyCharts(patientId);
+const getBodyChartsByPatientId = async (patientId, tenantId) => {
+  const pid = parseInt(patientId, 10);
 
-  return prisma.$queryRaw`
-    SELECT id, patient_id, title, image_url, annotated_image, sort_order, created_at, updated_at
-    FROM body_charts
-    WHERE patient_id = ${parseInt(patientId, 10)}
-    ORDER BY sort_order ASC, id ASC
-  `;
+  // Validate patient belongs to tenant
+  const patientWhere = { id: pid };
+  if (tenantId) patientWhere.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({ where: patientWhere });
+  if (!patient) {
+    const error = new Error('Patient not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  await ensureAnnotatedImageColumn();
+  await ensureDefaultBodyCharts(pid, tenantId);
+
+  const where = { patient_id: pid };
+  if (tenantId) where.tenant_id = tenantId;
+
+  return await prisma.bodyChart.findMany({
+    where,
+    orderBy: [
+      { sort_order: 'asc' },
+      { id: 'asc' }
+    ]
+  });
 };
 
-const updateBodyChart = async (id, patientId, payload) => {
+const updateBodyChart = async (id, patientId, payload, tenantId) => {
   await ensureAnnotatedImageColumn();
-  const chart = await prisma.bodyChart.findFirst({
-    where: { id: parseInt(id, 10), patient_id: parseInt(patientId, 10) }
-  });
+  const cid = parseInt(id, 10);
+  const pid = parseInt(patientId, 10);
+
+  const where = { id: cid, patient_id: pid };
+  if (tenantId) where.tenant_id = tenantId;
+
+  const chart = await prisma.bodyChart.findFirst({ where });
 
   if (!chart) {
     const error = new Error('Body chart not found');
@@ -61,20 +84,12 @@ const updateBodyChart = async (id, patientId, payload) => {
     throw error;
   }
 
-  await prisma.$executeRaw`
-    UPDATE body_charts
-    SET annotated_image = ${payload.annotatedImage || null}, updated_at = NOW(3)
-    WHERE id = ${parseInt(id, 10)}
-  `;
-
-  const [updated] = await prisma.$queryRaw`
-    SELECT id, patient_id, title, image_url, annotated_image, sort_order, created_at, updated_at
-    FROM body_charts
-    WHERE id = ${parseInt(id, 10)}
-    LIMIT 1
-  `;
-
-  return updated;
+  return await prisma.bodyChart.update({
+    where: { id: cid },
+    data: {
+      annotated_image: payload.annotatedImage || null
+    }
+  });
 };
 
 module.exports = {

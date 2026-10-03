@@ -1,8 +1,10 @@
 const prisma = require('../../config/prisma');
+const { notifyPaymentReceived } = require('../whatsapp/whatsappNotification.service');
 
-const getAllPayments = async (filters) => {
+const getAllPayments = async (filters, tenantId) => {
   const { patientId, invoiceId, startDate, endDate } = filters;
   const where = {};
+  if (tenantId) where.tenant_id = tenantId;
 
   if (patientId) where.patient_id = parseInt(patientId, 10);
   if (invoiceId) where.invoice_id = invoiceId;
@@ -23,9 +25,11 @@ const getAllPayments = async (filters) => {
   });
 };
 
-const getPaymentById = async (id) => {
-  const payment = await prisma.payment.findUnique({
-    where: { id },
+const getPaymentById = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const payment = await prisma.payment.findFirst({
+    where,
     include: {
       patient: { select: { id: true, first_name: true, last_name: true } },
       invoice: true
@@ -41,16 +45,26 @@ const getPaymentById = async (id) => {
   return payment;
 };
 
-const createPayment = async (data) => {
+const createPayment = async (data, tenantId) => {
   let { patient_id, patientId: pId, invoice_id, invoiceId: invId, amount, date, method, status, description } = data;
   const totalAmount = parseFloat(amount);
   const patientId = parseInt(patient_id || pId, 10);
   invoice_id = invoice_id || invId || null;
 
+  // Validate patient belongs to tenant
+  const patientWhere = { id: patientId };
+  if (tenantId) patientWhere.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({ where: patientWhere });
+  if (!patient) {
+    const error = new Error('Patient not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
   // --- SMART BULK LINKING ---
   if (!invoice_id) {
     const pendingInvoices = await prisma.invoice.findMany({
-      where: { patient_id: patientId, status: 'PENDING' },
+      where: { patient_id: patientId, status: 'PENDING', ...(tenantId ? { tenant_id: tenantId } : {}) },
       orderBy: { date: 'asc' }
     });
 
@@ -76,7 +90,8 @@ const createPayment = async (data) => {
               date: new Date(date),
               method,
               status: 'COMPLETED',
-              description: `Bulk payment part (Total: £${totalAmount})`
+              description: `Bulk payment part (Total: ₹${totalAmount})`,
+              tenant_id: tenantId || null
             }
           });
           await prisma.invoice.update({
@@ -87,7 +102,6 @@ const createPayment = async (data) => {
         }
       } else if (remainingAmount > 0) {
         // Partial coverage for this invoice (optional: link whatever is left)
-        // For now, let's just stop or link the remainder to the next one
         if (!firstInvoiceId) firstInvoiceId = inv.id;
         break;
       }
@@ -95,17 +109,11 @@ const createPayment = async (data) => {
     
     if (firstInvoiceId) {
       invoice_id = firstInvoiceId;
-      amount = totalAmount - remainingAmount; // Amount for the first linked invoice
+      amount = totalAmount - remainingAmount;
       if (remainingAmount > 0 && pendingInvoices.length > 0) {
-        // If there's leftover after covering some invoices, or it was just a partial payment
-        amount = totalAmount; // Actually let's just use the original logic if it didn't cover fully or we want to keep it simple
+        amount = totalAmount;
       }
-      
-      // Wait, let's keep it simple: if we found a first invoice, use its amount for the first record
-      // and let the loop handle the rest.
-      // Adjusting 'amount' for the first record created by the main prisma.create call below
       if (totalAmount !== remainingAmount) {
-         // This was a bulk payment that covered at least one full invoice
          amount = totalAmount - (totalAmount - (parseFloat(pendingInvoices.find(i => i.id === firstInvoiceId).total)));
       }
     }
@@ -120,7 +128,8 @@ const createPayment = async (data) => {
       date: new Date(date),
       method,
       status: status || 'COMPLETED',
-      description
+      description,
+      tenant_id: tenantId || null
     },
     include: {
       patient: true,
@@ -129,7 +138,23 @@ const createPayment = async (data) => {
   });
 
   if (invoice_id) {
-    await syncInvoiceStatus(invoice_id);
+    await syncInvoiceStatus(invoice_id, tenantId);
+  }
+
+  // --- Additive WhatsApp Notification (Non-blocking) ---
+  try {
+    const notifyTenantId = payment.patient?.tenant_id || tenantId || payment.tenant_id;
+    if (notifyTenantId) {
+      notifyPaymentReceived({
+        tenantId: notifyTenantId,
+        patient: payment.patient,
+        amount: payment.amount,
+        invoiceNumber: payment.invoice?.invoice_number || `INV-${payment.invoice_id || payment.id}`,
+        paymentMethod: payment.method
+      });
+    }
+  } catch (err) {
+    console.warn('[WhatsApp Notification] Non-blocking payment trigger skipped:', err.message);
   }
 
   return payment;
@@ -138,9 +163,11 @@ const createPayment = async (data) => {
 /**
  * Helper to update invoice status based on payment totals
  */
-const syncInvoiceStatus = async (invoiceId) => {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: invoiceId },
+const syncInvoiceStatus = async (invoiceId, tenantId) => {
+  const where = { id: invoiceId };
+  if (tenantId) where.tenant_id = tenantId;
+  const invoice = await prisma.invoice.findFirst({
+    where,
     include: { payments: true }
   });
 
@@ -161,15 +188,18 @@ const syncInvoiceStatus = async (invoiceId) => {
         action: 'PAY_INVOICE',
         target_id: invoiceId,
         target_type: 'Invoice',
-        details: `Invoice fully paid: £${totalPaid}`,
-        meta: JSON.stringify({ amount: totalPaid })
+        details: `Invoice fully paid: ₹${totalPaid}`,
+        meta: JSON.stringify({ amount: totalPaid }),
+        tenant_id: tenantId || invoice.tenant_id || null
       }
     });
   }
 };
 
-const deletePayment = async (id) => {
-  const payment = await prisma.payment.findUnique({ where: { id } });
+const deletePayment = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const payment = await prisma.payment.findFirst({ where });
   if (!payment) {
     const error = new Error('Payment record not found');
     error.statusCode = 404;

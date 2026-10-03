@@ -1,7 +1,8 @@
 const prisma = require('../../config/prisma');
+const { notifyClinicalPlanUpdated } = require('../whatsapp/whatsappNotification.service');
 
 const includeRelations = {
-  patient: { select: { id: true, first_name: true, last_name: true } },
+  patient: { select: { id: true, first_name: true, last_name: true, phone: true, tenant_id: true } },
   therapist: { select: { id: true, name: true } }
 };
 
@@ -27,8 +28,9 @@ const serializeDynamicForPlan = (dynamicContent) => {
   return lines.length ? `\n\nDynamic Template Data:\n${lines.join('\n')}` : '';
 };
 
-const getAllClinicalNotes = async (filters) => {
+const getAllClinicalNotes = async (filters, tenantId) => {
   const where = {};
+  if (tenantId) where.tenant_id = tenantId;
 
   if (filters.patientId) {
     where.patient_id = parseInt(filters.patientId, 10);
@@ -49,9 +51,11 @@ const getAllClinicalNotes = async (filters) => {
   });
 };
 
-const getClinicalNoteById = async (id) => {
-  const note = await prisma.clinicalNote.findUnique({
-    where: { id },
+const getClinicalNoteById = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const note = await prisma.clinicalNote.findFirst({
+    where,
     include: includeRelations
   });
 
@@ -64,20 +68,24 @@ const getClinicalNoteById = async (id) => {
   return note;
 };
 
-const createClinicalNote = async (data) => {
+const createClinicalNote = async (data, tenantId) => {
   const { patientId, therapistId, type, date, status, subjective, objective, assessment, plan, dynamic_content, dynamicContent } = data;
   const normalizedDynamicContent = dynamic_content !== undefined ? dynamic_content : dynamicContent;
 
-  // Check patient exists
-  const patient = await prisma.patient.findUnique({ where: { id: patientId } });
+  // Check patient exists within this clinic
+  const patientWhere = { id: patientId };
+  if (tenantId) patientWhere.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({ where: patientWhere });
   if (!patient) {
     const error = new Error('Patient not found');
     error.statusCode = 404;
     throw error;
   }
 
-  // Check therapist exists and role = therapist or admin
-  const user = await prisma.user.findUnique({ where: { id: therapistId } });
+  // Check therapist exists and role = therapist or admin within this clinic
+  const userWhere = { id: therapistId };
+  if (tenantId) userWhere.tenant_id = tenantId;
+  const user = await prisma.user.findFirst({ where: userWhere });
   if (!user || (user.role !== 'therapist' && user.role !== 'admin')) {
     const error = new Error('Authorized staff not found or user does not have permission to create notes');
     error.statusCode = 400;
@@ -109,11 +117,13 @@ const createClinicalNote = async (data) => {
     subjective: subjective || null,
     objective: objective || null,
     assessment: assessment || null,
-    plan: plan || null
+    plan: plan || null,
+    tenant_id: tenantId || null
   };
 
+  let createdNote;
   try {
-    return await prisma.clinicalNote.create({
+    createdNote = await prisma.clinicalNote.create({
       data: {
         ...baseData,
         dynamic_content: (normalizedDynamicContent && typeof normalizedDynamicContent === 'object') 
@@ -127,15 +137,36 @@ const createClinicalNote = async (data) => {
 
     // Fallback for environments where Prisma client/table isn't updated yet.
     const fallbackPlan = `${baseData.plan || ''}${serializeDynamicForPlan(normalizedDynamicContent)}`.trim() || null;
-    return await prisma.clinicalNote.create({
+    createdNote = await prisma.clinicalNote.create({
       data: { ...baseData, plan: fallbackPlan },
       include: includeRelations
     });
   }
+
+  // Non-blocking patient WhatsApp care plan notification
+  if (createdNote && (noteStatus === 'Completed' || createdNote.plan)) {
+    try {
+      const targetTenantId = createdNote.patient?.tenant_id || createdNote.tenant_id;
+      if (targetTenantId) {
+        notifyClinicalPlanUpdated({
+          tenantId: targetTenantId,
+          patient: createdNote.patient,
+          planTitle: createdNote.type || 'Care & Exercise Plan',
+          planType: 'Treatment Plan'
+        });
+      }
+    } catch (e) {
+      console.warn('[WhatsApp] Care plan notification skipped:', e.message);
+    }
+  }
+
+  return createdNote;
 };
 
-const updateClinicalNote = async (id, data) => {
-  const note = await prisma.clinicalNote.findUnique({ where: { id } });
+const updateClinicalNote = async (id, data, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const note = await prisma.clinicalNote.findFirst({ where });
 
   if (!note) {
     const error = new Error('Clinical note not found');
@@ -208,8 +239,10 @@ const updateClinicalNote = async (id, data) => {
   }
 };
 
-const deleteClinicalNote = async (id) => {
-  const note = await prisma.clinicalNote.findUnique({ where: { id } });
+const deleteClinicalNote = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const note = await prisma.clinicalNote.findFirst({ where });
 
   if (!note) {
     const error = new Error('Clinical note not found');

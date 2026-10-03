@@ -1,8 +1,9 @@
 const prisma = require('../../config/prisma');
 
-const getAllAttachments = async (filters) => {
+const getAllAttachments = async (filters, tenantId) => {
   const { patientId } = filters;
   const where = {};
+  if (tenantId) where.tenant_id = tenantId;
 
   if (patientId) where.patient_id = parseInt(patientId, 10);
 
@@ -15,9 +16,13 @@ const getAllAttachments = async (filters) => {
   });
 };
 
-const getAttachmentById = async (id) => {
-  const attachment = await prisma.attachment.findUnique({
-    where: { id: parseInt(id, 10) },
+const getAttachmentById = async (id, tenantId) => {
+  const aid = parseInt(id, 10);
+  const where = { id: aid };
+  if (tenantId) where.tenant_id = tenantId;
+
+  const attachment = await prisma.attachment.findFirst({
+    where,
     include: {
       patient: { select: { id: true, first_name: true, last_name: true } }
     }
@@ -32,13 +37,25 @@ const getAttachmentById = async (id) => {
   return attachment;
 };
 
-const createAttachment = async (data) => {
+const createAttachment = async (data, tenantId) => {
+  const pid = parseInt(data.patientId, 10);
+
+  const patientWhere = { id: pid };
+  if (tenantId) patientWhere.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({ where: patientWhere });
+  if (!patient) {
+    const error = new Error('Patient not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
   return await prisma.attachment.create({
     data: {
       name: data.name,
-      patient_id: parseInt(data.patientId, 10),
+      patient_id: pid,
       size: data.size,
-      type: data.type
+      type: data.type,
+      tenant_id: tenantId || null
     },
     include: {
       patient: true
@@ -46,9 +63,20 @@ const createAttachment = async (data) => {
   });
 };
 
-const deleteAttachment = async (id) => {
+const deleteAttachment = async (id, tenantId) => {
+  const aid = parseInt(id, 10);
+  const where = { id: aid };
+  if (tenantId) where.tenant_id = tenantId;
+
+  const existing = await prisma.attachment.findFirst({ where });
+  if (!existing) {
+    const error = new Error('Attachment not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
   return await prisma.attachment.delete({
-    where: { id: parseInt(id, 10) }
+    where: { id: aid }
   });
 };
 

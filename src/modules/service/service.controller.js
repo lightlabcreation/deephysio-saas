@@ -2,7 +2,7 @@ const serviceService = require('./service.service');
 
 const getAllServices = async (req, res) => {
   try {
-    const services = await serviceService.getAllServices(req.query);
+    const services = await serviceService.getAllServices(req.query, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -19,7 +19,7 @@ const getAllServices = async (req, res) => {
 const getServiceById = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const service = await serviceService.getServiceById(id);
+    const service = await serviceService.getServiceById(id, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -35,7 +35,7 @@ const getServiceById = async (req, res) => {
 
 const createService = async (req, res) => {
   try {
-    const service = await serviceService.createService(req.body);
+    const service = await serviceService.createService(req.body, req.user?.tenant_id);
 
     return res.status(201).json({
       success: true,
@@ -53,7 +53,7 @@ const createService = async (req, res) => {
 const updateService = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const service = await serviceService.updateService(id, req.body);
+    const service = await serviceService.updateService(id, req.body, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -71,7 +71,7 @@ const updateService = async (req, res) => {
 const deleteService = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const deletedService = await serviceService.deleteService(id);
+    const deletedService = await serviceService.deleteService(id, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,

@@ -3,7 +3,7 @@ const { logActivity } = require('../../utils/activityLogger');
 
 const createAppointment = async (req, res) => {
   try {
-    const appointment = await appointmentService.createAppointment(req.body);
+    const appointment = await appointmentService.createAppointment(req.body, req.user?.tenant_id);
 
     await logActivity(
       req.user?.id, 
@@ -29,7 +29,7 @@ const createAppointment = async (req, res) => {
 
 const getAllAppointments = async (req, res) => {
   try {
-    const appointments = await appointmentService.getAllAppointments(req.query);
+    const appointments = await appointmentService.getAllAppointments(req.query, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: appointments });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -39,7 +39,7 @@ const getAllAppointments = async (req, res) => {
 const getAppointmentById = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const appointment = await appointmentService.getAppointmentById(id);
+    const appointment = await appointmentService.getAppointmentById(id, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: appointment });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -49,7 +49,7 @@ const getAppointmentById = async (req, res) => {
 const updateAppointment = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const appointment = await appointmentService.updateAppointment(id, req.body);
+    const appointment = await appointmentService.updateAppointment(id, req.body, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: appointment });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -59,7 +59,7 @@ const updateAppointment = async (req, res) => {
 const deleteAppointment = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const deletedAppointment = await appointmentService.deleteAppointment(id);
+    const deletedAppointment = await appointmentService.deleteAppointment(id, req.user?.tenant_id);
     return res.status(200).json({ 
       success: true, 
       data: deletedAppointment,
@@ -73,7 +73,7 @@ const deleteAppointment = async (req, res) => {
 const updateStatus = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const appointment = await appointmentService.updateAppointmentStatus(id, req.body.status);
+    const appointment = await appointmentService.updateAppointmentStatus(id, req.body.status, req.user?.tenant_id);
     await logActivity(
       req.user?.id, 
       'UPDATE_APPOINTMENT', 

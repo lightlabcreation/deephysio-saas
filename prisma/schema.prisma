@@ -35,6 +35,7 @@ model Tenant {
   clinical_note_templates ClinicalNoteTemplate[]
   global_settings         GlobalSettings[]
   system_activity_logs    SystemActivityLog[]
+  whatsapp_connection     WhatsAppConnection?
   
   @@map("tenants")
 }
@@ -66,8 +67,8 @@ model Patient {
   id                  Int                       @id @default(autoincrement())
   first_name          String                    @default("")
   last_name           String                    @default("")
-  phone               String                    @unique
-  email               String?                   @unique
+  phone               String
+  email               String?
   gender              Gender?
   date_of_birth       DateTime?
   address             String?
@@ -100,6 +101,8 @@ model Patient {
   tenant_id           Int?
   tenant              Tenant?                   @relation(fields: [tenant_id], references: [id])
 
+  @@unique([tenant_id, phone])
+  @@unique([tenant_id, email])
   @@index([therapist_id])
   @@index([tenant_id])
   @@map("patients")
@@ -239,7 +242,7 @@ model ClinicalNote {
 
 model Invoice {
   id              String        @id @default(uuid())
-  invoice_number  String        @unique @db.VarChar(32)
+  invoice_number  String        @db.VarChar(32)
   patient_id      Int
   date            DateTime
   subtotal        Decimal       @db.Decimal(10, 2)
@@ -256,6 +259,7 @@ model Invoice {
   tenant_id  Int?
   tenant     Tenant?       @relation(fields: [tenant_id], references: [id])
 
+  @@unique([tenant_id, invoice_number])
   @@index([patient_id])
   @@index([status])
   @@index([tenant_id])
@@ -425,13 +429,14 @@ model ClinicalNoteTemplate {
 
 model GlobalSettings {
   id         Int      @id @default(autoincrement())
-  key        String   @unique
+  key        String
   value      String   @db.LongText
   updated_at DateTime @updatedAt
   
   tenant_id  Int?
   tenant     Tenant?  @relation(fields: [tenant_id], references: [id])
 
+  @@unique([tenant_id, key])
   @@index([tenant_id])
   @@map("global_settings")
 }
@@ -521,6 +526,9 @@ model communication_campaigns {
   status          String   @default("QUEUED") @db.VarChar(32)
   created_by      Int?
   created_at      DateTime @default(now())
+  tenant_id       Int?
+
+  @@index([tenant_id])
 }
 
 model communication_messages {
@@ -564,7 +572,9 @@ model telehealth_sessions {
   status       String    @default("SCHEDULED") @db.VarChar(32)
   starts_at    DateTime?
   created_at   DateTime  @default(now())
+  tenant_id    Int?
 
+  @@index([tenant_id])
   @@index([patient_id], map: "idx_telehealth_patient")
 }
 
@@ -643,4 +653,44 @@ enum SystemActionType {
   CREATE_INVOICE
   PAY_INVOICE
   UPDATE_SETTINGS
+}
+
+model WhatsAppConnection {
+  id                    Int       @id @default(autoincrement())
+  tenant_id             Int       @unique
+  phone_number          String?   @db.VarChar(32)
+  status                String    @default("DISCONNECTED") @db.VarChar(32)
+  qr_code               String?   @db.LongText
+  connected_at          DateTime?
+  last_seen_at          DateTime?
+  last_error            String?   @db.Text
+  session_path          String?   @db.VarChar(255)
+  notifications_enabled Boolean   @default(true)
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+  tenant                Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id])
+  @@map("whatsapp_connections")
+}
+
+model WhatsAppNotificationLog {
+  id                  Int      @id @default(autoincrement())
+  tenant_id           Int
+  recipient_phone     String   @db.VarChar(32)
+  recipient_name      String?  @db.VarChar(191)
+  recipient_type      String   @default("PATIENT") @db.VarChar(32)
+  event_type          String   @db.VarChar(64)
+  message_body        String   @db.Text
+  status              String   @default("PENDING") @db.VarChar(32)
+  provider_message_id String?  @db.VarChar(191)
+  attempts            Int      @default(1)
+  error               String?  @db.Text
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  @@index([tenant_id], map: "idx_wa_logs_tenant")
+  @@index([recipient_phone], map: "idx_wa_logs_phone")
+  @@index([event_type], map: "idx_wa_logs_event")
+  @@map("whatsapp_notification_logs")
 }

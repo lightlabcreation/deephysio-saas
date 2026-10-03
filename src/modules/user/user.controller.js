@@ -10,7 +10,7 @@ const getMe = async (req, res) => {
   try {
     const id = parseInt(req.user?.id, 10);
     if (!id || isNaN(id)) return res.status(401).json({ success: false, message: 'Unauthorized' });
-    const user = await userService.getUserById(id);
+    const user = await userService.getUserById(id, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: user });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message });

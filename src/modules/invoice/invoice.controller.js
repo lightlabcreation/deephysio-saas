@@ -3,7 +3,7 @@ const { logActivity } = require('../../utils/activityLogger');
 
 const getAllInvoices = async (req, res) => {
   try {
-    const invoices = await invoiceService.getAllInvoices(req.query);
+    const invoices = await invoiceService.getAllInvoices(req.query, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: invoices });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -12,7 +12,7 @@ const getAllInvoices = async (req, res) => {
 
 const getInvoiceById = async (req, res) => {
   try {
-    const invoice = await invoiceService.getInvoiceById(req.params.id);
+    const invoice = await invoiceService.getInvoiceById(req.params.id, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: invoice });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -21,7 +21,7 @@ const getInvoiceById = async (req, res) => {
 
 const downloadInvoice = async (req, res) => {
   try {
-    const payload = await invoiceService.getInvoiceDownloadPayload(req.params.id);
+    const payload = await invoiceService.getInvoiceDownloadPayload(req.params.id, req.user?.tenant_id);
     return res.status(200).json({
       success: true,
       data: payload,
@@ -34,7 +34,7 @@ const downloadInvoice = async (req, res) => {
 
 const createInvoice = async (req, res) => {
   try {
-    const invoice = await invoiceService.createInvoice(req.body);
+    const invoice = await invoiceService.createInvoice(req.body, req.user?.tenant_id);
     await logActivity(
       req.user?.id,
       'CREATE_INVOICE',
@@ -51,7 +51,7 @@ const createInvoice = async (req, res) => {
 
 const deleteInvoice = async (req, res) => {
   try {
-    const deletedInvoice = await invoiceService.deleteInvoice(req.params.id);
+    const deletedInvoice = await invoiceService.deleteInvoice(req.params.id, req.user?.tenant_id);
     await logActivity(
       req.user?.id,
       'UPDATE_SETTINGS',

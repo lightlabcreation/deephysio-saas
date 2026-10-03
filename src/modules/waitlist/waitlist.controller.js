@@ -7,7 +7,7 @@ const waitlistService = require('./waitlist.service');
  */
 const getWaitlist = async (req, res) => {
   try {
-    const entries = await waitlistService.getAllEntries();
+    const entries = await waitlistService.getAllEntries(req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -28,7 +28,7 @@ const getWaitlist = async (req, res) => {
  */
 const createWaitlistEntry = async (req, res) => {
   try {
-    const entry = await waitlistService.createEntry(req.body);
+    const entry = await waitlistService.createEntry(req.body, req.user?.tenant_id);
 
     return res.status(201).json({
       success: true,
@@ -51,7 +51,7 @@ const createWaitlistEntry = async (req, res) => {
 const deleteWaitlistEntry = async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const deletedEntry = await waitlistService.deleteEntry(id);
+    const deletedEntry = await waitlistService.deleteEntry(id, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -74,7 +74,7 @@ const deleteWaitlistEntry = async (req, res) => {
 const convertWaitlistToAppointment = async (req, res) => {
   try {
     const waitlistId = parseInt(req.params.id, 10);
-    const appointment = await waitlistService.convertToAppointment(waitlistId, req.body);
+    const appointment = await waitlistService.convertToAppointment(waitlistId, req.body, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -95,4 +95,3 @@ module.exports = {
   deleteWaitlistEntry,
   convertWaitlistToAppointment
 };
-

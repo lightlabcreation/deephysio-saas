@@ -3,7 +3,7 @@ const { logActivity } = require('../../utils/activityLogger');
 
 const getAllPayments = async (req, res) => {
   try {
-    const payments = await paymentService.getAllPayments(req.query);
+    const payments = await paymentService.getAllPayments(req.query, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: payments });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -13,7 +13,7 @@ const getAllPayments = async (req, res) => {
 const getPaymentById = async (req, res) => {
   try {
     const id = req.params.id;
-    const payment = await paymentService.getPaymentById(id);
+    const payment = await paymentService.getPaymentById(id, req.user?.tenant_id);
     return res.status(200).json({ success: true, data: payment });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, message: error.message || "Internal Server Error" });
@@ -22,14 +22,14 @@ const getPaymentById = async (req, res) => {
 
 const createPayment = async (req, res) => {
   try {
-    const payment = await paymentService.createPayment(req.body);
+    const payment = await paymentService.createPayment(req.body, req.user?.tenant_id);
     await logActivity(
       req.user?.id, 
       'PAY_INVOICE', 
       payment.invoice_id, 
       'Invoice', 
-      `Payment of £${payment.amount} recorded`,
-      { entity: 'Invoice', entityId: payment.invoice_id, label: `Payment £${payment.amount}` }
+      `Payment of ₹${payment.amount} recorded`,
+      { entity: 'Invoice', entityId: payment.invoice_id, label: `Payment ₹${payment.amount}` }
     );
     return res.status(201).json({ success: true, data: payment, message: "Payment recorded successfully" });
   } catch (error) {
@@ -40,7 +40,7 @@ const createPayment = async (req, res) => {
 const deletePayment = async (req, res) => {
   try {
     const id = req.params.id;
-    const deletedPayment = await paymentService.deletePayment(id);
+    const deletedPayment = await paymentService.deletePayment(id, req.user?.tenant_id);
     await logActivity(
       req.user?.id,
       'UPDATE_SETTINGS',

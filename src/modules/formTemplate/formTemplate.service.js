@@ -1,8 +1,16 @@
 const prisma = require('../../config/prisma');
 
-const getAllTemplates = async () => {
+const getAllTemplates = async (tenantId) => {
+  const where = { is_active: true };
+  if (tenantId) {
+    where.OR = [
+      { tenant_id: tenantId },
+      { tenant_id: null }
+    ];
+  }
+
   const templates = await prisma.formTemplate.findMany({
-    where: { is_active: true },
+    where,
     orderBy: { name: 'asc' }
   });
   return templates.map(t => {
@@ -13,9 +21,18 @@ const getAllTemplates = async () => {
   });
 };
 
-const getTemplateById = async (id) => {
-  const template = await prisma.formTemplate.findUnique({
-    where: { id: parseInt(id, 10) }
+const getTemplateById = async (id, tenantId) => {
+  const tid = parseInt(id, 10);
+  const where = { id: tid };
+  if (tenantId) {
+    where.OR = [
+      { tenant_id: tenantId },
+      { tenant_id: null }
+    ];
+  }
+
+  const template = await prisma.formTemplate.findFirst({
+    where
   });
 
   if (!template) {
@@ -31,21 +48,33 @@ const getTemplateById = async (id) => {
   return template;
 };
 
-const createTemplate = async (data) => {
+const createTemplate = async (data, tenantId) => {
   const fieldsData = typeof data.fields === 'string' ? data.fields : JSON.stringify(data.fields || []);
   return await prisma.formTemplate.create({
     data: {
       name: data.name,
       category: data.category,
-      fields: fieldsData
+      fields: fieldsData,
+      tenant_id: tenantId || null
     }
   });
 };
 
-const updateTemplate = async (id, data) => {
+const updateTemplate = async (id, data, tenantId) => {
+  const templateId = parseInt(id, 10);
+  const where = { id: templateId };
+  if (tenantId) where.tenant_id = tenantId;
+
+  const existing = await prisma.formTemplate.findFirst({ where });
+  if (!existing) {
+    const error = new Error('Form template not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
   const fieldsData = typeof data.fields === 'string' ? data.fields : JSON.stringify(data.fields || []);
   return await prisma.formTemplate.update({
-    where: { id: parseInt(id, 10) },
+    where: { id: templateId },
     data: {
       name: data.name,
       category: data.category,
@@ -54,8 +83,17 @@ const updateTemplate = async (id, data) => {
   });
 };
 
-const deleteTemplate = async (id) => {
+const deleteTemplate = async (id, tenantId) => {
   const templateId = parseInt(id, 10);
+  const where = { id: templateId };
+  if (tenantId) where.tenant_id = tenantId;
+
+  const existing = await prisma.formTemplate.findFirst({ where });
+  if (!existing) {
+    const error = new Error('Form template not found');
+    error.statusCode = 404;
+    throw error;
+  }
   
   const submissionsCount = await prisma.formSubmission.count({
     where: { form_template_id: templateId }
@@ -96,41 +134,17 @@ const seedTemplates = async () => {
         { id: 'c2', type: 'short', label: 'Patient Signature Name', required: true },
         { id: 'c3', type: 'date', label: 'Signed Date', required: true },
       ]
-    },
-    {
-      name: 'Initial Assessment (MSK)',
-      category: 'Assessment',
-      fields: [
-        { id: 'a1', type: 'text', label: 'History of Presenting Complaint', required: true },
-        { id: 'a2', type: 'text', label: 'Past Medical History', required: false },
-        { id: 'a3', type: 'text', label: 'Objective Findings', required: true },
-        { id: 'a4', type: 'text', label: 'Treatment Plan', required: true },
-      ]
-    },
-    {
-      name: 'Post-Op Rehab Protocol',
-      category: 'Rehabilitation',
-      fields: [
-        { id: 'r1', type: 'short', label: 'Surgery Date', required: true },
-        { id: 'r2', type: 'text', label: 'Weeks 1-4 Progress', required: true },
-        { id: 'r3', type: 'text', label: 'Home Exercise Adherence', required: true },
-      ]
-    },
-    {
-      name: 'Discharge Summary',
-      category: 'Discharge',
-      fields: [
-        { id: 'd1', type: 'text', label: 'Reason for Discharge', required: true },
-        { id: 'd2', type: 'text', label: 'Outcome Measures Score', required: true },
-        { id: 'd3', type: 'text', label: 'GP Recommendations', required: false },
-      ]
     }
   ];
 
   for (const t of defaults) {
-    const fieldsData = typeof t.fields === 'string' ? t.fields : JSON.stringify(t.fields || []);
-    await prisma.formTemplate.create({ 
-      data: { ...t, fields: fieldsData } 
+    await prisma.formTemplate.create({
+      data: {
+        name: t.name,
+        category: t.category,
+        fields: JSON.stringify(t.fields),
+        is_active: true
+      }
     });
   }
 };

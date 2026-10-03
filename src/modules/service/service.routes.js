@@ -44,7 +44,7 @@ router.get(
 router.post(
   '/',
   verifyToken,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'therapist', 'receptionist', 'billing'),
   (req, res, next) => {
     const { error } = createServiceValidation(req.body);
 
@@ -64,12 +64,12 @@ router.post(
 /**
  * @route   PUT /api/services/:id
  * @desc    Update a service
- * @access  Private (admin only)
+ * @access  Private (clinic staff)
  */
 router.put(
   '/:id',
   verifyToken,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'therapist', 'receptionist', 'billing'),
   (req, res, next) => {
     const { error: paramError } = paramIdValidation(req.params);
     if (paramError) {
@@ -90,15 +90,15 @@ router.put(
 /**
  * @route   DELETE /api/services/:id
  * @desc    Delete a service
- * @access  Private (admin only)
+ * @access  Private (clinic staff)
  */
 router.delete(
   '/:id',
   verifyToken,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'therapist', 'receptionist', 'billing'),
   (req, res, next) => {
-    const { error } = paramIdValidation(req.params);
-    if (error) {
+    const { error: paramError } = paramIdValidation(req.params);
+    if (paramError) {
       return res.status(400).json({ success: false, message: 'Invalid service ID' });
     }
     next();

@@ -11,26 +11,40 @@ const getOverview = async (user = null) => {
   const fourWeeksAgo = new Date();
   fourWeeksAgo.setDate(now.getDate() - 28);
 
+  const tenantId = user?.tenant_id;
+
+  const apptWhere = { appointment_date: { gte: sixMonthsAgo } };
+  if (tenantId) apptWhere.tenant_id = tenantId;
+
+  const invWhere = { date: { gte: sixMonthsAgo } };
+  if (tenantId) invWhere.tenant_id = tenantId;
+
+  const patWhere = { created_at: { gte: sixMonthsAgo } };
+  if (tenantId) patWhere.tenant_id = tenantId;
+
+  const payWhere = { date: { gte: sixMonthsAgo } };
+  if (tenantId) payWhere.tenant_id = tenantId;
+
   // Fetch all base data in PARALLEL instead of sequentially
   // This reduces total DB time from sum-of-all to max-of-one
   const [appointments, invoices, patients, payments, { systemFeed: recentLogs }] = await Promise.all([
     prisma.appointment.findMany({
-      where: { appointment_date: { gte: sixMonthsAgo } },
+      where: apptWhere,
       select: { appointment_date: true, status: true, id: true }
     }),
     prisma.invoice.findMany({
-      where: { date: { gte: sixMonthsAgo } },
+      where: invWhere,
       select: { date: true, total: true, status: true }
     }),
     prisma.patient.findMany({
-      where: { created_at: { gte: sixMonthsAgo } },
+      where: patWhere,
       select: { created_at: true }
     }),
     prisma.payment.findMany({
-      where: { date: { gte: sixMonthsAgo } },
+      where: payWhere,
       select: { date: true, amount: true }
     }),
-    fetchActivityLogs(user || { role: 'admin' }, { limit: 15 })
+    fetchActivityLogs(user || { role: 'admin', tenant_id: tenantId }, { limit: 15 })
   ]);
 
   const getMonthAbbr = (date) => new Date(date).toLocaleString('default', { month: 'short' });
@@ -178,17 +192,20 @@ const fetchActivityLogs = async (user, options = {}) => {
   const take = Math.min(parseInt(limit), 50);
 
   const where = {};
+  if (user?.tenant_id) {
+    where.tenant_id = user.tenant_id;
+  }
 
   if (user && user.role === 'therapist') {
     // Role-Based Filtering: Therapist sees their own logs OR logs tied to them
     // Parallel fetch for both related entity lists
     const [assignedPatients, assignedAppointments] = await Promise.all([
       prisma.patient.findMany({
-        where: { therapist_id: user.id },
+        where: { therapist_id: user.id, ...(user.tenant_id ? { tenant_id: user.tenant_id } : {}) },
         select: { id: true }
       }),
       prisma.appointment.findMany({
-        where: { therapist_id: user.id },
+        where: { therapist_id: user.id, ...(user.tenant_id ? { tenant_id: user.tenant_id } : {}) },
         select: { id: true }
       })
     ]);
@@ -226,9 +243,11 @@ const fetchActivityLogs = async (user, options = {}) => {
   };
 };
 
-const getStaffOverview = async ({ month, year } = {}) => {
+const getStaffOverview = async ({ month, year } = {}, tenantId) => {
   // Build date filter for appointments (month scope)
   const apptWhere = {};
+  if (tenantId) apptWhere.tenant_id = tenantId;
+
   if (month !== undefined && year !== undefined) {
     const m = parseInt(month);
     const y = parseInt(year);
@@ -242,12 +261,15 @@ const getStaffOverview = async ({ month, year } = {}) => {
   const todayEnd = new Date();
   todayEnd.setHours(23, 59, 59, 999);
 
+  const userWhere = {
+    role: { in: ['admin', 'therapist', 'receptionist', 'billing'] }
+  };
+  if (tenantId) userWhere.tenant_id = tenantId;
+
   // Parallel fetch: staff + month-scoped appointments + all appointments today (local server day)
   const [staffRows, appointments, todaysApptsRows] = await Promise.all([
     prisma.user.findMany({
-      where: {
-        role: { in: ['admin', 'therapist', 'receptionist', 'billing'] }
-      },
+      where: userWhere,
       select: {
         id: true,
         name: true,
@@ -269,7 +291,7 @@ const getStaffOverview = async ({ month, year } = {}) => {
       }
     }),
     prisma.appointment.findMany({
-      where: { appointment_date: { gte: todayStart, lte: todayEnd } },
+      where: { appointment_date: { gte: todayStart, lte: todayEnd }, ...(tenantId ? { tenant_id: tenantId } : {}) },
       select: { therapist_id: true }
     })
   ]);
@@ -372,11 +394,12 @@ const getStaffOverview = async ({ month, year } = {}) => {
   };
 };
 
-const getRoomIncome = async ({ startDate, endDate } = {}) => {
+const getRoomIncome = async ({ startDate, endDate } = {}, tenantId) => {
   const apptWhere = {
     room: { not: null },
     status: 'completed'
   };
+  if (tenantId) apptWhere.tenant_id = tenantId;
 
   if (startDate && endDate) {
     apptWhere.appointment_date = {

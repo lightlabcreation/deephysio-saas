@@ -14,7 +14,7 @@ const getTasks = async (req, res, next) => {
       throw error;
     }
 
-    const tasks = await taskService.getTasksByPatientId(patientId);
+    const tasks = await taskService.getTasksByPatientId(patientId, req.user?.tenant_id);
     res.json({ success: true, data: tasks });
   } catch (error) {
     next(error);
@@ -33,7 +33,7 @@ const createTask = async (req, res, next) => {
       throw err;
     }
 
-    const task = await taskService.createTask(req.body);
+    const task = await taskService.createTask(req.body, req.user?.tenant_id);
     res.status(201).json({ success: true, data: task });
   } catch (error) {
     next(error);
@@ -61,7 +61,7 @@ const updateTask = async (req, res, next) => {
       throw err;
     }
 
-    const task = await taskService.updateTask(req.params.id, req.body);
+    const task = await taskService.updateTask(req.params.id, req.body, req.user?.tenant_id);
     res.json({ success: true, data: task });
   } catch (error) {
     next(error);

@@ -1,0 +1,57 @@
+[
+  {
+    "id": 103,
+    "subject": "asda",
+    "message": "fghg anant don hai tu toh reee",
+    "status": "Open",
+    "priority": "Low",
+    "tenant_id": 9,
+    "tenant_name": "sattt",
+    "user_name": "saaaa",
+    "user_email": "satt@gmail.com",
+    "created_at": "2026-10-03T06:25:53.239Z",
+    "updated_at": "2026-10-03T06:25:53.239Z",
+    "replies": []
+  },
+  {
+    "id": 101,
+    "subject": "Billing Invoice PDF Generation Issue",
+    "message": "When downloading GST invoice from billing section, the tax breakdown table format is misaligned on A4 print.",
+    "status": "Open",
+    "priority": "High",
+    "tenant_id": 1,
+    "tenant_name": "deephysio ",
+    "user_name": "Admin User",
+    "user_email": "admin@deephysio.com",
+    "created_at": "2026-10-03T04:07:27.275Z",
+    "updated_at": "2026-10-03T04:07:27.278Z",
+    "replies": []
+  },
+  {
+    "id": 102,
+    "subject": "SMS Gateway WhatsApp API Integration",
+    "message": "We want to enable automated appointment reminders via WhatsApp template. Please guide us on configuration.",
+    "status": "Replied",
+    "priority": "Medium",
+    "tenant_id": 2,
+    "tenant_name": "ABC CLINIC",
+    "user_name": "ABC Kumar",
+    "user_email": "abc@gmail.com",
+    "created_at": "2026-10-02T06:07:27.278Z",
+    "updated_at": "2026-10-02T18:07:27.278Z",
+    "replies": [
+      {
+        "id": 1,
+        "sender": "SuperAdmin Support",
+        "message": "WhatsApp Business API credentials can be enabled in Settings > Notification Channels.",
+        "is_superadmin": true,
+        "created_at": "2026-10-02T18:07:27.278Z",
+        "date": "2026-10-02T18:07:27.278Z",
+        "user": {
+          "name": "SuperAdmin Support",
+          "role": "superadmin"
+        }
+      }
+    ]
+  }
+]

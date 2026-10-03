@@ -1,7 +1,8 @@
 const prisma = require('../../config/prisma');
 
-const getAllServices = async (filters) => {
+const getAllServices = async (filters, tenantId) => {
   const where = {};
+  if (tenantId) where.tenant_id = tenantId;
 
   if (filters.activeOnly === 'true') {
     where.is_active = true;
@@ -18,9 +19,11 @@ const getAllServices = async (filters) => {
   }));
 };
 
-const getServiceById = async (id) => {
-  const service = await prisma.service.findUnique({
-    where: { id }
+const getServiceById = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const service = await prisma.service.findFirst({
+    where
   });
 
   if (!service) {
@@ -32,15 +35,15 @@ const getServiceById = async (id) => {
   return service;
 };
 
-const createService = async (data) => {
+const createService = async (data, tenantId) => {
   const { name, category, duration, price, is_active, isActive, status } = data;
   const trimmedName = name.trim();
 
-  // Check unique name (case-insensitive)
+  // Check unique name within clinic
+  const existingWhere = { name: trimmedName };
+  if (tenantId) existingWhere.tenant_id = tenantId;
   const existing = await prisma.service.findFirst({
-    where: {
-      name: trimmedName
-    }
+    where: existingWhere
   });
 
   if (existing) {
@@ -64,13 +67,16 @@ const createService = async (data) => {
       category: category || null,
       duration,
       price,
-      is_active: activeFlag
+      is_active: activeFlag,
+      tenant_id: tenantId || null
     }
   });
 };
 
-const updateService = async (id, data) => {
-  const service = await prisma.service.findUnique({ where: { id } });
+const updateService = async (id, data, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const service = await prisma.service.findFirst({ where });
 
   if (!service) {
     const error = new Error('Service not found');
@@ -83,11 +89,13 @@ const updateService = async (id, data) => {
   // Check unique name if changed
   if (name !== undefined) {
     const trimmedName = name.trim();
+    const existingWhere = {
+      name: trimmedName,
+      NOT: { id }
+    };
+    if (tenantId) existingWhere.tenant_id = tenantId;
     const existing = await prisma.service.findFirst({
-      where: {
-        name: trimmedName,
-        NOT: { id }
-      }
+      where: existingWhere
     });
 
     if (existing) {
@@ -117,8 +125,10 @@ const updateService = async (id, data) => {
   });
 };
 
-const deleteService = async (id) => {
-  const service = await prisma.service.findUnique({ where: { id } });
+const deleteService = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const service = await prisma.service.findFirst({ where });
 
   if (!service) {
     const error = new Error('Service not found');

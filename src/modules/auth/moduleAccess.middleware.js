@@ -30,7 +30,7 @@ const isSafeFallbackRequest = (req) => {
   return SAFE_FALLBACK_PATTERNS.some((pattern) => pattern.test(path));
 };
 
-/** GET /api/settings?keys=clinicProfile only — letterheads/invoices need clinic data without Settings menu. */
+/** GET /api/settings?keys=clinicProfile,clinicCurrency only — letterheads/invoices/currency need clinic data without Settings menu. */
 const isClinicProfileOnlySettingsGet = (req) => {
   if ((req.method || '').toUpperCase() !== 'GET') return false;
   const full = req.originalUrl || req.url || '';
@@ -40,7 +40,8 @@ const isClinicProfileOnlySettingsGet = (req) => {
     const keysStr = u.searchParams.get('keys');
     if (!keysStr) return false;
     const keys = keysStr.split(',').map((k) => k.trim()).filter(Boolean);
-    return keys.length > 0 && keys.every((k) => k.toLowerCase() === 'clinicprofile');
+    const allowed = ['clinicprofile', 'cliniccurrency'];
+    return keys.length > 0 && keys.every((k) => allowed.includes(k.toLowerCase()));
   } catch {
     return false;
   }

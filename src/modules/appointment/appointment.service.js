@@ -1,11 +1,13 @@
 const prisma = require('../../config/prisma');
 
-const createAppointment = async (data) => {
+const createAppointment = async (data, tenantId) => {
   const { patientId, therapistId, appointmentDate, serviceId, room, startTime, endTime, notes } = data;
 
-  // 1. Check patient exists
-  const patient = await prisma.patient.findUnique({
-    where: { id: patientId }
+  // 1. Check patient exists within this clinic
+  const patientWhere = { id: patientId };
+  if (tenantId) patientWhere.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({
+    where: patientWhere
   });
 
   if (!patient) {
@@ -14,9 +16,11 @@ const createAppointment = async (data) => {
     throw error;
   }
 
-  // 2. Check therapist exists and is a therapist
-  const therapist = await prisma.user.findUnique({
-    where: { id: therapistId }
+  // 2. Check therapist exists and is a therapist within this clinic
+  const therapistWhere = { id: therapistId };
+  if (tenantId) therapistWhere.tenant_id = tenantId;
+  const therapist = await prisma.user.findFirst({
+    where: therapistWhere
   });
 
   if (!therapist || (therapist.role !== 'therapist' && therapist.role !== 'admin')) {
@@ -40,6 +44,7 @@ const createAppointment = async (data) => {
 
     const existingClash = await prisma.appointment.findFirst({
       where: {
+        ...(tenantId ? { tenant_id: tenantId } : {}),
         OR: [
           { therapist_id: therapistId },
           { room: room }
@@ -81,17 +86,33 @@ const createAppointment = async (data) => {
       notes: notes,
       start_time: startTime ? new Date(startTime) : null,
       end_time: endTime ? new Date(endTime) : null,
-      status: 'scheduled'
+      status: 'scheduled',
+      tenant_id: tenantId || null
     }
   });
+
+  // Additive Role-based WhatsApp Notification (Non-blocking)
+  try {
+    const { notifyAppointmentBooking } = require('../whatsapp/whatsappNotification.service');
+    notifyAppointmentBooking({
+      tenantId: appointment.tenant_id || patient.tenant_id,
+      patient,
+      appointment,
+      therapistName: therapist?.name,
+      roomName: room
+    });
+  } catch (_) {}
 
   return appointment;
 };
 
-const getAllAppointments = async (filters) => {
+const getAllAppointments = async (filters, tenantId) => {
   const { date, therapistId, patientId, startDate, endDate } = filters;
 
   const where = {};
+  if (tenantId) {
+    where.tenant_id = tenantId;
+  }
 
   // Date Range Filter (Precedence)
   if (startDate && endDate) {
@@ -146,9 +167,11 @@ const getAllAppointments = async (filters) => {
   });
 };
 
-const getAppointmentById = async (id) => {
-  const appointment = await prisma.appointment.findUnique({
-    where: { id },
+const getAppointmentById = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const appointment = await prisma.appointment.findFirst({
+    where,
     include: {
       patient: { select: { id: true, first_name: true, last_name: true } },
       therapist: { select: { id: true, name: true } },
@@ -165,8 +188,10 @@ const getAppointmentById = async (id) => {
   return appointment;
 };
 
-const updateAppointment = async (id, data) => {
-  const appointment = await prisma.appointment.findUnique({ where: { id } });
+const updateAppointment = async (id, data, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const appointment = await prisma.appointment.findFirst({ where });
   if (!appointment) {
     const error = new Error('Appointment not found');
     error.statusCode = 404;
@@ -179,7 +204,9 @@ const updateAppointment = async (id, data) => {
     : (String(status).toLowerCase() === 'confirmed' ? 'scheduled' : String(status).toLowerCase());
 
   if (therapistId !== undefined) {
-    const therapist = await prisma.user.findUnique({ where: { id: therapistId } });
+    const therapistWhere = { id: therapistId };
+    if (tenantId) therapistWhere.tenant_id = tenantId;
+    const therapist = await prisma.user.findFirst({ where: therapistWhere });
     if (!therapist || therapist.role !== 'therapist') {
       const error = new Error('Invalid therapist ID');
       error.statusCode = 400;
@@ -188,7 +215,9 @@ const updateAppointment = async (id, data) => {
   }
 
   if (serviceId !== undefined) {
-    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    const serviceWhere = { id: serviceId };
+    if (tenantId) serviceWhere.tenant_id = tenantId;
+    const service = await prisma.service.findFirst({ where: serviceWhere });
     if (!service) {
       const error = new Error('Service not found');
       error.statusCode = 400;
@@ -234,8 +263,10 @@ const updateAppointment = async (id, data) => {
   });
 };
 
-const deleteAppointment = async (id) => {
-  const appointment = await prisma.appointment.findUnique({ where: { id } });
+const deleteAppointment = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const appointment = await prisma.appointment.findFirst({ where });
   if (!appointment) {
     const error = new Error('Appointment not found');
     error.statusCode = 404;
@@ -246,11 +277,13 @@ const deleteAppointment = async (id) => {
   return appointment;
 };
 
-const updateAppointmentStatus = async (id, rawStatus) => {
+const updateAppointmentStatus = async (id, rawStatus, tenantId) => {
   const status = String(rawStatus || '').toLowerCase() === 'confirmed'
     ? 'scheduled'
     : String(rawStatus || '').toLowerCase();
-  const appointment = await prisma.appointment.findUnique({ where: { id } });
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const appointment = await prisma.appointment.findFirst({ where });
   if (!appointment) {
     const error = new Error('Appointment not found');
     error.statusCode = 404;

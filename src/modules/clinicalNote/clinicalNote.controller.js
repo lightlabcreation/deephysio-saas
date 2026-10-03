@@ -3,7 +3,7 @@ const { logActivity } = require('../../utils/activityLogger');
 
 const getAllClinicalNotes = async (req, res) => {
   try {
-    const notes = await clinicalNoteService.getAllClinicalNotes(req.query);
+    const notes = await clinicalNoteService.getAllClinicalNotes(req.query, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -19,7 +19,7 @@ const getAllClinicalNotes = async (req, res) => {
 
 const getClinicalNoteById = async (req, res) => {
   try {
-    const note = await clinicalNoteService.getClinicalNoteById(req.params.id);
+    const note = await clinicalNoteService.getClinicalNoteById(req.params.id, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -35,7 +35,7 @@ const getClinicalNoteById = async (req, res) => {
 
 const createClinicalNote = async (req, res) => {
   try {
-    const note = await clinicalNoteService.createClinicalNote(req.body);
+    const note = await clinicalNoteService.createClinicalNote(req.body, req.user?.tenant_id);
 
     await logActivity(
       req.user?.id, 
@@ -61,8 +61,7 @@ const createClinicalNote = async (req, res) => {
 
 const updateClinicalNote = async (req, res) => {
   try {
-    const note = await clinicalNoteService.updateClinicalNote(req.params.id, req.body);
-
+    const note = await clinicalNoteService.updateClinicalNote(req.params.id, req.body, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,
@@ -79,7 +78,7 @@ const updateClinicalNote = async (req, res) => {
 
 const deleteClinicalNote = async (req, res) => {
   try {
-    const deletedNote = await clinicalNoteService.deleteClinicalNote(req.params.id);
+    const deletedNote = await clinicalNoteService.deleteClinicalNote(req.params.id, req.user?.tenant_id);
 
     return res.status(200).json({
       success: true,

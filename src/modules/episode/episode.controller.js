@@ -7,10 +7,10 @@ const getEpisodes = async (req, res) => {
     if (!patientId) {
       return res.status(400).json({ success: false, message: 'patientId is required' });
     }
-    const episodes = await episodeService.getEpisodesByPatientId(patientId);
+    const episodes = await episodeService.getEpisodesByPatientId(patientId, req.user?.tenant_id);
     res.status(200).json({ success: true, data: episodes });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -21,13 +21,13 @@ const createEpisode = async (req, res) => {
       return res.status(400).json({ success: false, message: error.details[0].message });
     }
 
-    const episode = await episodeService.createEpisode(value);
+    const episode = await episodeService.createEpisode(value, req.user?.tenant_id);
     res.status(201).json({ success: true, data: episode });
   } catch (error) {
     if (error.message === 'Active episode already exists for this patient') {
       return res.status(400).json({ success: false, message: error.message });
     }
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 
@@ -39,10 +39,10 @@ const endEpisode = async (req, res) => {
       return res.status(400).json({ success: false, message: error.details[0].message });
     }
 
-    const episode = await episodeService.endEpisode(id, value.endDate);
+    const episode = await episodeService.endEpisode(id, value.endDate, req.user?.tenant_id);
     res.status(200).json({ success: true, data: episode });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(error.statusCode || 500).json({ success: false, message: error.message });
   }
 };
 

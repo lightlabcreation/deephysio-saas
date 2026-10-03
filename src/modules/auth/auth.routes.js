@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { registerUser, loginUser, forgotPassword, resetPassword, changePassword, createSubscriptionOrder } = require('./auth.controller');
+const { registerUser, loginUser, forgotPassword, verifyOtp, resetPassword, changePassword, getActiveSessions, terminateOtherSessions, createSubscriptionOrder } = require('./auth.controller');
 const { registerValidation, loginValidation, forgotPasswordValidation, resetPasswordValidation, changePasswordValidation } = require('./auth.validation');
 const { verifyToken } = require('./auth.middleware');
 
@@ -43,17 +43,12 @@ router.post('/forgot-password', (req, res, next) => {
   next();
 }, forgotPassword);
 
-router.post('/reset-password', (req, res, next) => {
-  const { error } = resetPasswordValidation(req.body);
-  if (error) {
-    const message = error.details.map(err => err.message).join(', ');
-    return res.status(400).json({
-      success: false,
-      message
-    });
-  }
-  next();
-}, resetPassword);
+router.post('/verify-otp', verifyOtp);
+
+router.post('/reset-password', resetPassword);
+
+router.get('/active-sessions', verifyToken, getActiveSessions);
+router.post('/terminate-sessions', verifyToken, terminateOtherSessions);
 
 router.post('/change-password', verifyToken, (req, res, next) => {
   const { error } = changePasswordValidation(req.body);

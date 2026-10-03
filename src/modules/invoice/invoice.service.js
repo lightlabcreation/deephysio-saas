@@ -37,9 +37,10 @@ const getMaxInvoiceSequence = async (tx) => {
   return max;
 };
 
-const getAllInvoices = async (filters) => {
+const getAllInvoices = async (filters, tenantId) => {
   const { status, patientId } = filters;
   const where = {};
+  if (tenantId) where.tenant_id = tenantId;
 
   if (status) where.status = status;
   if (patientId) where.patient_id = parseInt(patientId, 10);
@@ -55,9 +56,11 @@ const getAllInvoices = async (filters) => {
   });
 };
 
-const getInvoiceById = async (id) => {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id },
+const getInvoiceById = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const invoice = await prisma.invoice.findFirst({
+    where,
     include: {
       patient: { select: { id: true, first_name: true, last_name: true } },
       items: true,
@@ -74,8 +77,8 @@ const getInvoiceById = async (id) => {
   return invoice;
 };
 
-const getInvoiceDownloadPayload = async (id) => {
-  const invoice = await getInvoiceById(id);
+const getInvoiceDownloadPayload = async (id, tenantId) => {
+  const invoice = await getInvoiceById(id, tenantId);
   return {
     id: invoice.id,
     invoice_number: invoice.invoice_number,
@@ -92,12 +95,22 @@ const getInvoiceDownloadPayload = async (id) => {
   };
 };
 
-const createInvoice = async (data) => {
+const createInvoice = async (data, tenantId) => {
   const { patientId, date, items, notes } = data;
+
+  // Validate patient belongs to tenant
+  const patientWhere = { id: Number(patientId) };
+  if (tenantId) patientWhere.tenant_id = tenantId;
+  const patient = await prisma.patient.findFirst({ where: patientWhere });
+  if (!patient) {
+    const error = new Error('Patient not found');
+    error.statusCode = 404;
+    throw error;
+  }
 
   let taxRate = 20;
   try {
-    const settings = await prisma.globalSettings.findUnique({ where: { key: 'clinicProfile' } });
+    const settings = await prisma.globalSettings.findFirst({ where: { key: 'clinicProfile', ...(tenantId ? { tenant_id: tenantId } : {}) } });
     if (settings && settings.value) {
       const profile = JSON.parse(settings.value);
       if (profile.taxRate !== undefined) taxRate = Number(profile.taxRate);
@@ -124,7 +137,7 @@ const createInvoice = async (data) => {
       const invoice_number = `DEEPHYSIO-${String(nextSeq).padStart(4, '0')}`;
 
       // Check if invoice number already exists in DB
-      const existing = await prisma.invoice.findUnique({
+      const existing = await prisma.invoice.findFirst({
         where: { invoice_number }
       });
       if (existing) {
@@ -141,6 +154,7 @@ const createInvoice = async (data) => {
           total,
           notes: notes || null,
           status: 'PENDING',
+          tenant_id: tenantId || null,
           items: {
             create: (items || []).map((item) => ({
               service: item.service,
@@ -165,8 +179,10 @@ const createInvoice = async (data) => {
   throw lastErr || new Error('Could not allocate unique invoice number');
 };
 
-const deleteInvoice = async (id) => {
-  const invoice = await prisma.invoice.findUnique({ where: { id } });
+const deleteInvoice = async (id, tenantId) => {
+  const where = { id };
+  if (tenantId) where.tenant_id = tenantId;
+  const invoice = await prisma.invoice.findFirst({ where });
   if (!invoice) {
     const error = new Error('Invoice not found');
     error.statusCode = 404;

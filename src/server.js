@@ -41,11 +41,12 @@ process.on('unhandledRejection', (reason) => {
   console.error('❌ [CRITICAL] Unhandled Rejection:', reason);
 });
 
-const PORT = process.env.PORT || 5000;
-const isPipeOrSocket = typeof PORT === 'string' && (PORT.startsWith('/') || PORT.startsWith('\\\\'));
+const rawPort = process.env.PORT;
+const isPassenger = typeof rawPort === 'string' && rawPort.toLowerCase() === 'passenger';
+const isPipeOrSocket = typeof rawPort === 'string' && (rawPort.startsWith('/') || rawPort.startsWith('\\\\') || isPassenger || (isNaN(Number(rawPort)) && rawPort.length > 0));
 
 const onListening = async () => {
-  console.log(`🚀 ClinicPilot SaaS API running on ${isPipeOrSocket ? PORT : `port ${PORT} (0.0.0.0)`}`);
+  console.log(`🚀 ClinicPilot SaaS API running on ${isPipeOrSocket ? rawPort : `port ${rawPort || 5000} (0.0.0.0)`}`);
   try {
     await prisma.$queryRaw`SELECT 1`;
     console.log(`✅ Database connected successfully (MySQL)`);
@@ -70,9 +71,25 @@ const onListening = async () => {
   }
 };
 
-const server = isPipeOrSocket
-  ? app.listen(PORT, onListening)
-  : app.listen(Number(PORT) || 5000, '0.0.0.0', onListening);
+let server;
+if (isPipeOrSocket) {
+  server = app.listen(rawPort, onListening);
+} else {
+  const primaryPort = Number(rawPort) || 5000;
+  server = app.listen(primaryPort, '0.0.0.0', onListening);
+
+  // Bind common reverse-proxy ports (5000, 3000, 8080) as fail-safe listeners if free
+  const failSafePorts = [5000, 3000, 8080].filter((p) => p !== primaryPort);
+  for (const port of failSafePorts) {
+    try {
+      app.listen(port, '0.0.0.0', () => {
+        console.log(`📡 Additional proxy fallback listener active on port ${port}`);
+      }).on('error', () => {
+        // Silently skip if port is already occupied
+      });
+    } catch (_) {}
+  }
+}
 
 server.on('error', (err) => {
   console.error("❌ SERVER LISTEN FAILED:", err);

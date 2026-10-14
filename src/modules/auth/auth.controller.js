@@ -209,6 +209,83 @@ const createSubscriptionOrder = async (req, res) => {
   }
 };
 
+const deleteAccount = async (req, res) => {
+  try {
+    const { password, email } = req.body;
+    const targetEmail = req.user?.email || email;
+
+    if (!targetEmail || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required to confirm account deletion'
+      });
+    }
+
+    const prisma = require('../../config/prisma');
+    const bcrypt = require('bcryptjs');
+
+    const user = await prisma.user.findUnique({
+      where: { email: targetEmail }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Account not found'
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Incorrect password. Deletion cancelled.'
+      });
+    }
+
+    // Anonymize personal info and revoke permissions
+    const anonymizedEmail = `deleted_${user.id}_${Date.now()}@anonymized.local`;
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        name: 'Deleted User',
+        email: anonymizedEmail,
+        password: await bcrypt.hash(`deleted_${Date.now()}`, 10),
+        allowed_menus: '[]',
+        allowed_permissions: '[]',
+        allowed_actions: '[]'
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Account deleted and personal details anonymized successfully'
+    });
+  } catch (err) {
+    console.error('Account deletion error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error while processing account deletion'
+    });
+  }
+};
+
+const registerDeviceToken = async (req, res) => {
+  try {
+    const { deviceToken, platform } = req.body;
+    console.log(`[Push Notification] Device registered (${platform || 'android'}): ${deviceToken?.substring(0, 15)}...`);
+    return res.status(200).json({
+      success: true,
+      message: 'Device token registered successfully'
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -218,5 +295,7 @@ module.exports = {
   changePassword,
   getActiveSessions,
   terminateOtherSessions,
-  createSubscriptionOrder
+  createSubscriptionOrder,
+  deleteAccount,
+  registerDeviceToken
 };

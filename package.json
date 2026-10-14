@@ -4,6 +4,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "postinstall": "prisma generate",
     "dev": "nodemon --watch src --ext js,mjs,cjs,json --ignore node_modules --ignore backups --ignore prisma src/server.js",
     "db:push": "node scripts/safe-migrate.js db push",
     "db:unsafe-push": "prisma db push --accept-data-loss",

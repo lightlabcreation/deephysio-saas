@@ -13,9 +13,17 @@ const app = express();
 // Core Middleware
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost',
+  'https://localhost',
+  'capacitor://localhost',
   'http://deephysiosoftware.kiaansoftware.com',
   'https://deephysiosoftware.kiaansoftware.com',
   'https://deephysioclinic.netlify.app',
+  'https://clinicpilotdemo.store',
+  'http://clinicpilotdemo.store',
+  'https://api-saas.clinicpilotdemo.store',
+  'http://api-saas.clinicpilotdemo.store',
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
@@ -63,6 +71,9 @@ app.use('/api/support', supportRoutes);
 
 const emailSettingsRoutes = require('./modules/emailSettings/emailSettings.routes');
 app.use('/api/email-settings', emailSettingsRoutes);
+
+// Mobile Device Push Token Registration
+app.post('/api/notifications/register-device', require('./modules/auth/auth.controller').registerDeviceToken);
 
 // Public Configuration Route
 app.get('/api/public/config', async (req, res, next) => {

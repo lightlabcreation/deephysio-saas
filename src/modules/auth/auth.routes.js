@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { registerUser, loginUser, forgotPassword, verifyOtp, resetPassword, changePassword, getActiveSessions, terminateOtherSessions, createSubscriptionOrder } = require('./auth.controller');
+const { registerUser, loginUser, forgotPassword, verifyOtp, resetPassword, changePassword, getActiveSessions, terminateOtherSessions, createSubscriptionOrder, deleteAccount, registerDeviceToken } = require('./auth.controller');
 const { registerValidation, loginValidation, forgotPasswordValidation, resetPasswordValidation, changePasswordValidation } = require('./auth.validation');
 const { verifyToken } = require('./auth.middleware');
 
@@ -61,5 +61,8 @@ router.post('/change-password', verifyToken, (req, res, next) => {
   }
   next();
 }, changePassword);
+
+router.post('/delete-account', deleteAccount);
+router.post('/register-device', registerDeviceToken);
 
 module.exports = router;

@@ -33,32 +33,49 @@ loadEnvFile(path.resolve(process.cwd(), '.env'));
 const app = require('./app');
 const prisma = require('./config/prisma');
 
-const PORT = process.env.PORT || 5000;
+// Global crash protection for long-running server instances
+process.on('uncaughtException', (err) => {
+  console.error('❌ [CRITICAL] Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ [CRITICAL] Unhandled Rejection:', reason);
+});
 
-app.listen(PORT, async (err) => {
-  if (err) {
-    console.error("❌ SERVER FAILED:", err);
-  } else {
-    console.log(`🚀 Server running on port ${PORT}`);
+const PORT = process.env.PORT || 5000;
+const isPipeOrSocket = typeof PORT === 'string' && (PORT.startsWith('/') || PORT.startsWith('\\\\'));
+
+const onListening = async () => {
+  console.log(`🚀 ClinicPilot SaaS API running on ${isPipeOrSocket ? PORT : `port ${PORT} (0.0.0.0)`}`);
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    console.log(`✅ Database connected successfully (MySQL)`);
+    
+    // Initialize Automatic 7-Day Admin Email Backup Scheduler
     try {
-      await prisma.$queryRaw`SELECT 1`;
-      console.log(`✅ Database connected successfully (MySQL: deephysio)`);
-      
-      // Initialize Automatic 7-Day Admin Email Backup Scheduler
       const { initBackupScheduler } = require('./modules/backup/backupScheduler.service');
       await initBackupScheduler();
-
-      // Safely restore persisted WhatsApp sessions if active
-      try {
-        const { restoreActiveSessionsOnStartup } = require('./modules/whatsapp/whatsapp.service');
-        await restoreActiveSessionsOnStartup();
-      } catch (waErr) {
-        console.warn('⚠️ [WhatsApp] Session startup recovery warning:', waErr.message);
-      }
-    } catch (dbErr) {
-      console.error(`❌ Database connection failed:`, dbErr.message);
+    } catch (schedErr) {
+      console.warn('⚠️ [Backup Scheduler] Initialization warning:', schedErr.message);
     }
+
+    // Safely restore persisted WhatsApp sessions if active
+    try {
+      const { restoreActiveSessionsOnStartup } = require('./modules/whatsapp/whatsapp.service');
+      await restoreActiveSessionsOnStartup();
+    } catch (waErr) {
+      console.warn('⚠️ [WhatsApp] Session startup recovery warning:', waErr.message);
+    }
+  } catch (dbErr) {
+    console.error(`❌ Database connection failed:`, dbErr.message);
   }
+};
+
+const server = isPipeOrSocket
+  ? app.listen(PORT, onListening)
+  : app.listen(Number(PORT) || 5000, '0.0.0.0', onListening);
+
+server.on('error', (err) => {
+  console.error("❌ SERVER LISTEN FAILED:", err);
 });
 
 

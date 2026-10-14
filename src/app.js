@@ -43,9 +43,26 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '15mb' }));
 
-// 3. ROOT TEST ROUTE
+// 3. ROOT & HEALTH TEST ROUTES (Reverse Proxies & Uptime)
 app.get('/', (req, res) => {
   res.send('SERVER OK');
+});
+
+app.get('/api', (req, res) => {
+  res.status(200).json({
+    status: 'online',
+    service: 'ClinicPilot Clinical SaaS API',
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    service: 'ClinicPilot API',
+    uptime: process.uptime()
+  });
 });
 
 // 🔥 Response Transformer (BEFORE routes)

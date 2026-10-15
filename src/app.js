@@ -45,7 +45,7 @@ app.get('/', (req, res) => {
   res.send('SERVER OK');
 });
 
-app.get('/api', (req, res) => {
+app.get(['/api', '/api/'], (req, res) => {
   res.status(200).json({
     status: 'online',
     service: 'ClinicPilot Clinical SaaS API',
@@ -54,12 +54,16 @@ app.get('/api', (req, res) => {
   });
 });
 
-app.get('/api/health', (req, res) => {
+app.get(['/health', '/api/health'], (req, res) => {
   res.status(200).json({
     status: 'healthy',
     service: 'ClinicPilot API',
     uptime: process.uptime()
   });
+});
+
+app.get('/ping', (req, res) => {
+  res.send('pong');
 });
 
 // 🔥 Response Transformer (BEFORE routes)

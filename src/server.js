@@ -41,59 +41,115 @@ process.on('unhandledRejection', (reason) => {
   console.error('❌ [CRITICAL] Unhandled Rejection:', reason);
 });
 
-const rawPort = process.env.PORT;
+const rawPort = process.env.PORT ? String(process.env.PORT).trim() : null;
 const isPassenger = typeof rawPort === 'string' && rawPort.toLowerCase() === 'passenger';
-const isPipeOrSocket = typeof rawPort === 'string' && (rawPort.startsWith('/') || rawPort.startsWith('\\\\') || isPassenger || (isNaN(Number(rawPort)) && rawPort.length > 0));
+const isPipeOrSocket = typeof rawPort === 'string' && (rawPort.startsWith('/') || rawPort.startsWith('\\\\') || isPassenger);
 
-const onListening = async () => {
-  console.log(`🚀 ClinicPilot SaaS API running on ${isPipeOrSocket ? rawPort : `port ${rawPort || 5000} (0.0.0.0)`}`);
+let isDbInitialized = false;
+const initDatabaseAndBackgroundServices = async () => {
+  if (isDbInitialized) return;
+  isDbInitialized = true;
+
   try {
     await prisma.$queryRaw`SELECT 1`;
     console.log(`✅ Database connected successfully (MySQL)`);
-    
-    // Initialize Automatic 7-Day Admin Email Backup Scheduler
-    try {
-      const { initBackupScheduler } = require('./modules/backup/backupScheduler.service');
-      await initBackupScheduler();
-    } catch (schedErr) {
-      console.warn('⚠️ [Backup Scheduler] Initialization warning:', schedErr.message);
-    }
-
-    // Safely restore persisted WhatsApp sessions if active
-    try {
-      const { restoreActiveSessionsOnStartup } = require('./modules/whatsapp/whatsapp.service');
-      await restoreActiveSessionsOnStartup();
-    } catch (waErr) {
-      console.warn('⚠️ [WhatsApp] Session startup recovery warning:', waErr.message);
-    }
   } catch (dbErr) {
-    console.error(`❌ Database connection failed:`, dbErr.message);
+    console.error(`❌ Database connection warning:`, dbErr.message);
+  }
+
+  // Non-blocking initialization of Background Services
+  try {
+    const { initBackupScheduler } = require('./modules/backup/backupScheduler.service');
+    initBackupScheduler().catch((schedErr) => {
+      console.warn('⚠️ [Backup Scheduler] Initialization warning:', schedErr.message);
+    });
+  } catch (schedErr) {
+    console.warn('⚠️ [Backup Scheduler] Initialization warning:', schedErr.message);
+  }
+
+  try {
+    const { restoreActiveSessionsOnStartup } = require('./modules/whatsapp/whatsapp.service');
+    restoreActiveSessionsOnStartup().catch((waErr) => {
+      console.warn('⚠️ [WhatsApp] Session startup recovery warning:', waErr.message);
+    });
+  } catch (waErr) {
+    console.warn('⚠️ [WhatsApp] Session startup recovery warning:', waErr.message);
   }
 };
 
-let server;
-if (isPipeOrSocket) {
-  server = app.listen(rawPort, onListening);
-} else {
-  const primaryPort = Number(rawPort) || 5000;
-  server = app.listen(primaryPort, '0.0.0.0', onListening);
+const activeServers = [];
 
-  // Bind common reverse-proxy ports (5000, 3000, 8080) as fail-safe listeners if free
-  const failSafePorts = [5000, 3000, 8080].filter((p) => p !== primaryPort);
-  for (const port of failSafePorts) {
+// Helper to bind a port or socket safely
+const startListener = (portOrSocket, isSocket = false) => {
+  return new Promise((resolve) => {
     try {
-      app.listen(port, '0.0.0.0', () => {
-        console.log(`📡 Additional proxy fallback listener active on port ${port}`);
-      }).on('error', () => {
-        // Silently skip if port is already occupied
-      });
-    } catch (_) {}
-  }
-}
+      const serverInstance = isSocket
+        ? app.listen(portOrSocket, () => {
+            console.log(`🚀 ClinicPilot SaaS API running on socket/pipe: ${portOrSocket}`);
+            initDatabaseAndBackgroundServices();
+            resolve(serverInstance);
+          })
+        : app.listen(portOrSocket, '0.0.0.0', () => {
+            console.log(`🚀 ClinicPilot SaaS API running on port ${portOrSocket} (0.0.0.0)`);
+            initDatabaseAndBackgroundServices();
+            resolve(serverInstance);
+          });
 
-server.on('error', (err) => {
-  console.error("❌ SERVER LISTEN FAILED:", err);
-});
+      serverInstance.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          console.log(`ℹ️ Port ${portOrSocket} is in use by another service, skipping.`);
+        } else {
+          console.warn(`⚠️ Listener error on ${portOrSocket}:`, err.message);
+        }
+        resolve(null);
+      });
+    } catch (_) {
+      resolve(null);
+    }
+  });
+};
+
+const startServer = async () => {
+  if (isPipeOrSocket) {
+    const s = await startListener(rawPort, true);
+    if (s) activeServers.push(s);
+  }
+
+  const explicitPort = rawPort && !isPipeOrSocket && !isNaN(Number(rawPort)) ? Number(rawPort) : null;
+
+  // Ports to bind so that whichever port the reverse proxy (Caddy/Nginx) expects, this API answers
+  const portsToTry = [
+    explicitPort,
+    5001, // Primary alternative SaaS port (since 5000 is occupied by Master SaaS)
+    5000, // Standard default port (if free)
+    5002,
+    5003,
+    5004,
+    5005,
+    4000,
+    4001,
+    3001,
+    8000,
+    8001,
+    8081,
+    8082
+  ].filter((p, idx, arr) => p != null && p > 0 && arr.indexOf(p) === idx);
+
+  for (const port of portsToTry) {
+    const s = await startListener(port, false);
+    if (s) activeServers.push(s);
+  }
+
+  if (activeServers.length === 0) {
+    console.error("❌ CRITICAL: Could not bind to any port or socket!");
+  } else {
+    console.log(`✅ ClinicPilot SaaS API is active on ${activeServers.length} listener(s). Ready for reverse proxy traffic.`);
+  }
+};
+
+startServer();
+
+module.exports = { app, activeServers };
 
 
 
